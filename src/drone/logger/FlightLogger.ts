@@ -1,5 +1,5 @@
 // Flight Operations Logger
-import { DroneEvent, DroneError, FlightLogEntry, DroneTelemetry } from '../types';
+import { DroneEvent, DroneError, FlightLogEntry } from '../types';
 
 /**
  * Log levels
@@ -263,7 +263,7 @@ export class FlightLogger {
   /**
    * Log to file (placeholder for actual implementation)
    */
-  private logToFile(entry: LogEntry): void {
+  private logToFile(_entry: LogEntry): void {
     // In a real implementation, this would write to a file
     // For now, we'll just store in memory
     // Future enhancement: use fs.appendFile or a logging library like winston

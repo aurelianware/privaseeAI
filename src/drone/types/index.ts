@@ -129,6 +129,7 @@ export enum DroneErrorCode {
   COMMAND_TIMEOUT = 'command_timeout',
   COMMAND_FAILED = 'command_failed',
   LOW_BATTERY = 'low_battery',
+  CRITICAL_BATTERY = 'critical_battery',
   GPS_SIGNAL_LOST = 'gps_signal_lost',
   OBSTACLE_DETECTED = 'obstacle_detected',
   GEOFENCE_VIOLATION = 'geofence_violation',

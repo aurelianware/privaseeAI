@@ -2,13 +2,9 @@
 import {
   DroneMission,
   MissionWaypoint,
-  MissionState,
-  MissionStatus,
   WaypointActionType,
-  DroneErrorCode,
 } from '../types';
 import { FlightLogger } from '../logger/FlightLogger';
-import { DroneErrorHandler, createDroneError } from '../recovery/ErrorHandler';
 import { DroneConfigManager } from '../config/DroneConfig';
 
 /**
@@ -26,14 +22,11 @@ export interface MissionValidationResult {
 export class MissionPlanner {
   private static instance: MissionPlanner;
   private missions: Map<string, DroneMission> = new Map();
-  private activeMissions: Map<string, MissionStatus> = new Map();
   private logger: FlightLogger;
-  private errorHandler: DroneErrorHandler;
   private configManager: DroneConfigManager;
 
   private constructor() {
     this.logger = FlightLogger.getInstance();
-    this.errorHandler = DroneErrorHandler.getInstance();
     this.configManager = DroneConfigManager.getInstance();
   }
 

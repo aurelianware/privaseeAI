@@ -1,5 +1,5 @@
 // Error Handling and Recovery Mechanisms
-import { DroneError, DroneErrorCode, DroneCommandType } from '../types';
+import { DroneError, DroneErrorCode } from '../types';
 import { FlightLogger } from '../logger/FlightLogger';
 
 /**
@@ -106,7 +106,7 @@ export class DroneErrorHandler {
    */
   private determineRecoveryStrategy(
     error: DroneError,
-    droneId: string
+    _droneId: string
   ): RecoveryAction | null {
     switch (error.code) {
       case DroneErrorCode.CONNECTION_FAILED:
@@ -279,7 +279,7 @@ export class DroneErrorHandler {
   private async executeRetryStrategy(
     action: RecoveryAction,
     droneId: string,
-    context?: any
+    _context?: any
   ): Promise<void> {
     const maxRetries = action.maxRetries || this.config.maxRetryAttempts;
     const retryDelay = action.retryDelay || this.config.retryDelay;
@@ -309,7 +309,7 @@ export class DroneErrorHandler {
    * Execute return home strategy
    */
   private async executeReturnHomeStrategy(
-    action: RecoveryAction,
+    _action: RecoveryAction,
     droneId: string
   ): Promise<void> {
     this.logger.info('ERROR_HANDLER', 'Initiating return to home', { droneId });
@@ -330,12 +330,12 @@ export class DroneErrorHandler {
    * Execute hover strategy
    */
   private async executeHoverStrategy(
-    action: RecoveryAction,
+    _action: RecoveryAction,
     droneId: string
   ): Promise<void> {
     this.logger.info('ERROR_HANDLER', 'Initiating hover in place', { droneId });
     
-    const timeout = action.timeout || 10000;
+    const timeout = _action.timeout || 10000;
     await this.sleep(timeout);
     
     // After timeout, check if condition has improved

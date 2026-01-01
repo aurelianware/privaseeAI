@@ -4,9 +4,7 @@ import { Device, DeviceConfiguration } from '../../utils/deviceRegistry';
 import { SecurityEvent } from '../../utils/storage';
 import { DroneController } from '../control/DroneController';
 import { DroneEventEmitter } from '../events/EventEmitter';
-import { MissionPlanner } from '../missions/MissionPlanner';
 import { FlightLogger } from '../logger/FlightLogger';
-import { DroneEventType, DroneTelemetry } from '../types';
 
 /**
  * Drone connection configuration
@@ -26,15 +24,13 @@ export class DroneAdapter implements DeviceAdapter {
   
   private controller: DroneController | null = null;
   private eventEmitter: DroneEventEmitter;
-  private missionPlanner: MissionPlanner;
   private logger: FlightLogger;
   private device?: Device;
   private isDetectionActive = false;
-  private detectionInterval?: NodeJS.Timeout;
+  private detectionInterval?: ReturnType<typeof setInterval>;
 
   constructor() {
     this.eventEmitter = DroneEventEmitter.getInstance();
-    this.missionPlanner = MissionPlanner.getInstance();
     this.logger = FlightLogger.getInstance();
   }
 

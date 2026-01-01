@@ -32,7 +32,7 @@ export class DroneController {
   private logger: FlightLogger;
   private errorHandler: DroneErrorHandler;
   private telemetry: DroneTelemetry | null = null;
-  private telemetryInterval: NodeJS.Timeout | null = null;
+  private telemetryInterval: ReturnType<typeof setInterval> | null = null;
   private commandQueue: DroneCommand[] = [];
   private isProcessingCommands = false;
 
