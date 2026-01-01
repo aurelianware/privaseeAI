@@ -25,7 +25,7 @@
     "@auth0/auth0-react": "^2.8.0",
     "@azure/identity": "^4.13.0",
     "@azure/keyvault-secrets": "^4.10.0",
-    "@prisma/client": "^6.19.0",
+    "@prisma/client": "^7.1.0",
     "@stripe/stripe-js": "^8.5.3",
     "@tensorflow-models/coco-ssd": "^2.2.3",
     "@tensorflow/tfjs": "^4.13.0",
