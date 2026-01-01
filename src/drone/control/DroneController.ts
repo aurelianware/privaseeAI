@@ -121,7 +121,9 @@ export class DroneController {
     const startTime = Date.now();
 
     try {
-      // Add to command queue
+      // NOTE: Command queue is a placeholder for SDK-level queuing.
+      // In the actual implementation, the Autel SDK would handle command queuing.
+      // For now, commands are executed directly via performCommand.
       this.commandQueue.push(command);
 
       // Process command queue
@@ -129,7 +131,7 @@ export class DroneController {
         await this.processCommandQueue();
       }
 
-      // Simulate command execution (replace with actual SDK command)
+      // Execute command directly (actual SDK integration would handle this)
       const result = await this.performCommand(command);
 
       const executionTime = Date.now() - startTime;

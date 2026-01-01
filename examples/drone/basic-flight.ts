@@ -13,14 +13,9 @@
 import {
   createDroneController,
   getEventEmitter,
-  getLogger,
-  LogLevel,
-} from '../src/drone';
+} from '../../src/drone';
 
 async function basicFlightExample() {
-  // Initialize logger
-  const logger = getLogger({ logLevel: LogLevel.INFO });
-  
   // Set up event listeners
   const eventEmitter = getEventEmitter();
   

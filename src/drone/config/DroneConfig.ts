@@ -188,12 +188,14 @@ export class DroneConfigManager {
   }
 
   /**
-   * Load configuration from JSON
+   * Load configuration from JSON (updates the singleton instance)
    */
   public static fromJSON(json: string): DroneConfigManager {
     try {
       const config = JSON.parse(json) as DroneConfig;
-      return new DroneConfigManager(config);
+      const instance = DroneConfigManager.getInstance();
+      instance.updateConfig(config);
+      return instance;
     } catch (error) {
       throw new Error(`Failed to parse configuration JSON: ${error}`);
     }

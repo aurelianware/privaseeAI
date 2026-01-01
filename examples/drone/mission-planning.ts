@@ -13,13 +13,10 @@ import {
   createDroneController,
   getMissionPlanner,
   getEventEmitter,
-  getLogger,
-  LogLevel,
   WaypointActionType,
-} from '../src/drone';
+} from '../../src/drone';
 
 async function missionPlanningExample() {
-  const logger = getLogger({ logLevel: LogLevel.INFO });
   const planner = getMissionPlanner();
   const eventEmitter = getEventEmitter();
   const controller = createDroneController('mission-drone');

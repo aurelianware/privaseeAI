@@ -64,6 +64,8 @@ export class FlightLogger {
   public static getInstance(config?: Partial<LoggerConfig>): FlightLogger {
     if (!FlightLogger.instance) {
       FlightLogger.instance = new FlightLogger(config);
+    } else if (config) {
+      FlightLogger.instance.updateConfig(config);
     }
     return FlightLogger.instance;
   }

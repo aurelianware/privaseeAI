@@ -28,6 +28,7 @@ export class DroneAdapter implements DeviceAdapter {
   private device?: Device;
   private isDetectionActive = false;
   private detectionInterval?: ReturnType<typeof setInterval>;
+  private eventSubscriptions: string[] = []; // Track subscription IDs for cleanup
 
   constructor() {
     this.eventEmitter = DroneEventEmitter.getInstance();
@@ -86,6 +87,9 @@ export class DroneAdapter implements DeviceAdapter {
       if (this.isDetectionActive) {
         await this.stopDetection();
       }
+
+      // Clean up event subscriptions
+      this.cleanupEventListeners();
 
       // Disconnect controller
       await this.controller.disconnect();
@@ -313,25 +317,39 @@ export class DroneAdapter implements DeviceAdapter {
    */
   private setupEventListeners(droneId: string): void {
     // Listen for telemetry updates
-    this.eventEmitter.onTelemetryUpdate(async (event) => {
+    const telemetryId = this.eventEmitter.onTelemetryUpdate(async (event) => {
       // Could forward telemetry to privaseeAI storage system
       this.logger.debug('DRONE_ADAPTER', 'Telemetry update received', event.data);
     }, droneId);
+    this.eventSubscriptions.push(telemetryId);
 
     // Listen for low battery
-    this.eventEmitter.onLowBattery(async (event) => {
+    const lowBatteryId = this.eventEmitter.onLowBattery(async (event) => {
       this.logger.warn('DRONE_ADAPTER', `Low battery warning: ${event.data.percentage}%`, undefined, droneId);
     }, droneId);
+    this.eventSubscriptions.push(lowBatteryId);
 
     // Listen for errors
-    this.eventEmitter.onError(async (event) => {
+    const errorId = this.eventEmitter.onError(async (event) => {
       this.logger.error('DRONE_ADAPTER', `Drone error: ${event.data.message}`, event.data, droneId);
     }, droneId);
+    this.eventSubscriptions.push(errorId);
 
     // Listen for obstacle detection
-    this.eventEmitter.onObstacleDetected(async (event) => {
+    const obstacleId = this.eventEmitter.onObstacleDetected(async (event) => {
       this.logger.warn('DRONE_ADAPTER', `Obstacle detected: ${event.data.direction} at ${event.data.distance}m`, undefined, droneId);
     }, droneId);
+    this.eventSubscriptions.push(obstacleId);
+  }
+
+  /**
+   * Clean up event listeners
+   */
+  private cleanupEventListeners(): void {
+    for (const subscriptionId of this.eventSubscriptions) {
+      this.eventEmitter.off(subscriptionId);
+    }
+    this.eventSubscriptions = [];
   }
 
   /**

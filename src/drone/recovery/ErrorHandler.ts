@@ -199,8 +199,20 @@ export class DroneErrorHandler {
     error: DroneError,
     droneId: string,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    context?: any
+    context?: any,
+    recursionDepth = 0
   ): Promise<void> {
+    const MAX_RECURSION_DEPTH = 3;
+    
+    if (recursionDepth >= MAX_RECURSION_DEPTH) {
+      this.logger.error('ERROR_HANDLER', 'Maximum recursion depth reached for recovery strategies', {
+        droneId,
+        errorCode: error.code,
+        depth: recursionDepth,
+      });
+      throw new Error('Recovery strategy recursion limit exceeded');
+    }
+
     const recoveryKey = `${droneId}-${error.code}`;
 
     // Check if recovery is already in progress
@@ -268,7 +280,8 @@ export class DroneErrorHandler {
           { strategy: action.fallbackStrategy },
           error,
           droneId,
-          context
+          context,
+          recursionDepth + 1
         );
       }
     } finally {
@@ -293,11 +306,11 @@ export class DroneErrorHandler {
       // Wait before retry
       await this.sleep(retryDelay);
 
-      // Retry logic would be implemented here
-      // This is a placeholder for the actual retry implementation
-      // In a real scenario, this would re-execute the failed command
+      // NOTE: Retry logic is a placeholder for actual SDK integration.
+      // In production, this should re-execute the failed command through the DroneController.
+      // The random success/failure below is for demonstration only.
       
-      // Simulate success/failure
+      // Simulate success/failure (replace with actual command retry)
       const success = Math.random() > 0.3; // 70% success rate for demo
       if (success) {
         this.logger.info('ERROR_HANDLER', `Retry successful on attempt ${attempt}`, { droneId });
