@@ -5,6 +5,7 @@ import { FlightLogger } from '../logger/FlightLogger';
 /**
  * Recovery strategy types
  */
+// eslint-disable-next-line no-unused-vars
 export enum RecoveryStrategy {
   RETRY = 'retry',
   RETURN_HOME = 'return_home',
@@ -74,6 +75,7 @@ export class DroneErrorHandler {
   public async handleError(
     error: DroneError,
     droneId: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     context?: any
   ): Promise<RecoveryAction | null> {
     // Log the error
@@ -196,6 +198,7 @@ export class DroneErrorHandler {
     action: RecoveryAction,
     error: DroneError,
     droneId: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     context?: any
   ): Promise<void> {
     const recoveryKey = `${droneId}-${error.code}`;
@@ -429,7 +432,8 @@ export function createDroneError(
   code: DroneErrorCode,
   message: string,
   severity: 'info' | 'warning' | 'error' | 'critical' = 'error',
-  recoverable: boolean = true,
+  recoverable = true,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   details?: Record<string, any>
 ): DroneError {
   return {

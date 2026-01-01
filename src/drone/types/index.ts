@@ -3,6 +3,7 @@
 /**
  * Drone connection states
  */
+// eslint-disable-next-line no-unused-vars
 export enum DroneConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -13,6 +14,7 @@ export enum DroneConnectionState {
 /**
  * Flight modes supported by Autel EVO Lite
  */
+// eslint-disable-next-line no-unused-vars
 export enum FlightMode {
   MANUAL = 'manual',
   GPS = 'gps',
@@ -78,6 +80,7 @@ export interface DroneTelemetry {
 /**
  * Drone command types
  */
+// eslint-disable-next-line no-unused-vars
 export enum DroneCommandType {
   CONNECT = 'connect',
   DISCONNECT = 'disconnect',
@@ -103,6 +106,7 @@ export enum DroneCommandType {
  */
 export interface DroneCommand {
   type: DroneCommandType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   parameters?: Record<string, any>;
   timeout?: number; // milliseconds
   priority?: 'low' | 'medium' | 'high' | 'emergency';
@@ -114,6 +118,7 @@ export interface DroneCommand {
 export interface DroneCommandResponse {
   success: boolean;
   commandType: DroneCommandType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   data?: any;
   error?: DroneError;
   executionTime: number; // milliseconds
@@ -123,6 +128,7 @@ export interface DroneCommandResponse {
 /**
  * Drone error types
  */
+// eslint-disable-next-line no-unused-vars
 export enum DroneErrorCode {
   CONNECTION_FAILED = 'connection_failed',
   CONNECTION_LOST = 'connection_lost',
@@ -147,6 +153,7 @@ export interface DroneError {
   message: string;
   severity: 'info' | 'warning' | 'error' | 'critical';
   timestamp: Date;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   details?: Record<string, any>;
   recoverable: boolean;
 }
@@ -169,6 +176,7 @@ export interface MissionWaypoint {
 /**
  * Waypoint action types
  */
+// eslint-disable-next-line no-unused-vars
 export enum WaypointActionType {
   TAKE_PHOTO = 'take_photo',
   START_RECORDING = 'start_recording',
@@ -182,6 +190,7 @@ export enum WaypointActionType {
  */
 export interface WaypointAction {
   type: WaypointActionType;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   parameters?: Record<string, any>;
 }
 
@@ -213,6 +222,7 @@ export interface DroneMission {
 /**
  * Mission execution state
  */
+// eslint-disable-next-line no-unused-vars
 export enum MissionState {
   IDLE = 'idle',
   VALIDATING = 'validating',
@@ -276,6 +286,7 @@ export interface DroneConfig {
 /**
  * Drone event types
  */
+// eslint-disable-next-line no-unused-vars
 export enum DroneEventType {
   CONNECTION_CHANGED = 'connection_changed',
   TELEMETRY_UPDATE = 'telemetry_update',
@@ -300,6 +311,7 @@ export enum DroneEventType {
 /**
  * Drone event payload
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface DroneEvent<T = any> {
   type: DroneEventType;
   timestamp: Date;
