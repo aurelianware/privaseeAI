@@ -1,4 +1,5 @@
 // Platform-Specific Device Adapters
+// NOTE: For Autel EVO Lite drone integration, see src/drone/adapters/DroneAdapter.ts
 import { SecurityEvent } from './storage';
 import { Device, DeviceConfiguration } from './deviceRegistry';
 
