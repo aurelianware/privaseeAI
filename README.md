@@ -47,6 +47,15 @@ A sophisticated **web-based security monitoring application** that uses AI objec
 - **Cloud Integration**: Azure Blob Storage configuration
 - **Performance Tuning**: Adaptive settings for different devices
 
+### **🚁 Drone Integration (NEW!)**
+- **Autel EVO Lite Support**: Complete SDK integration for aerial surveillance
+- **Flight Control**: Takeoff, landing, waypoint navigation, RTH
+- **Mission Planning**: Autonomous missions with waypoint validation
+- **Event System**: Real-time telemetry and battery monitoring
+- **Error Recovery**: Automatic failsafe and recovery mechanisms
+- **Privacy-First**: Encrypted logs, local storage, configurable retention
+- 📚 **[View Drone Documentation](docs/DRONE_INTEGRATION.md)**
+
 ## 🛠 Technology Stack
 
 - **Frontend**: React 18 + TypeScript + Vite
@@ -58,6 +67,32 @@ A sophisticated **web-based security monitoring application** that uses AI objec
 - **PWA**: Workbox + Service Workers for offline functionality
 - **Build**: Vite with TypeScript compilation
 - **Deployment**: Vercel/Netlify ready, mobile PWA support
+- **Drone SDK**: Autel EVO Lite integration with TypeScript
+
+## 🚁 Drone Features
+
+privaseeAI includes a complete Node.js/TypeScript SDK for integrating Autel EVO Lite drones into your surveillance system:
+
+- **Flight Control**: Full control API for takeoff, landing, navigation
+- **Mission Planning**: Create and validate waypoint-based autonomous missions
+- **Event Handling**: Real-time telemetry, battery warnings, obstacle detection
+- **Error Recovery**: Automatic recovery strategies with failsafe protocols
+- **Logging**: Comprehensive flight operation logging
+- **Device Integration**: Seamless integration with existing device management
+
+### Quick Start with Drone
+
+```typescript
+import { createDroneController } from './src/drone';
+
+const drone = createDroneController('my-drone');
+await drone.connect({ host: '192.168.1.100', port: 8889 });
+await drone.takeoff(10);
+await drone.takePhoto();
+await drone.land();
+```
+
+📚 **[Full Drone Documentation](docs/DRONE_INTEGRATION.md)** | 🔧 **[Examples](examples/drone/)**
 
 ## 🚀 Getting Started
 
