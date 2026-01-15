@@ -32,7 +32,7 @@
     "@tensorflow/tfjs": "^4.13.0",
     "@tensorflow/tfjs-backend-webgl": "^4.13.0",
     "@tensorflow/tfjs-converter": "^4.13.0",
-    "@types/node": "^24.10.1",
+    "@types/node": "^25.0.8",
     "applicationinsights": "^3.12.1",
     "bcryptjs": "^3.0.3",
     "date-fns": "^2.30.0",
