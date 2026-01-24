@@ -47,6 +47,15 @@ A sophisticated **web-based security monitoring application** that uses AI objec
 - **Cloud Integration**: Azure Blob Storage configuration
 - **Performance Tuning**: Adaptive settings for different devices
 
+### **🚁 Drone Integration (NEW!)**
+- **Autel EVO Lite Support**: Complete SDK integration for aerial surveillance
+- **Flight Control**: Takeoff, landing, waypoint navigation, RTH
+- **Mission Planning**: Autonomous missions with waypoint validation
+- **Event System**: Real-time telemetry and battery monitoring
+- **Error Recovery**: Automatic failsafe and recovery mechanisms
+- **Privacy-First**: Encrypted logs, local storage, configurable retention
+- 📚 **[View Drone Documentation](docs/DRONE_INTEGRATION.md)**
+
 ## 🛠 Technology Stack
 
 - **Frontend**: React 18 + TypeScript + Vite
@@ -58,6 +67,32 @@ A sophisticated **web-based security monitoring application** that uses AI objec
 - **PWA**: Workbox + Service Workers for offline functionality
 - **Build**: Vite with TypeScript compilation
 - **Deployment**: Vercel/Netlify ready, mobile PWA support
+- **Drone SDK**: Autel EVO Lite integration with TypeScript
+
+## 🚁 Drone Features
+
+privaseeAI includes a complete Node.js/TypeScript SDK for integrating Autel EVO Lite drones into your surveillance system:
+
+- **Flight Control**: Full control API for takeoff, landing, navigation
+- **Mission Planning**: Create and validate waypoint-based autonomous missions
+- **Event Handling**: Real-time telemetry, battery warnings, obstacle detection
+- **Error Recovery**: Automatic recovery strategies with failsafe protocols
+- **Logging**: Comprehensive flight operation logging
+- **Device Integration**: Seamless integration with existing device management
+
+### Quick Start with Drone
+
+```typescript
+import { createDroneController } from './src/drone';
+
+const drone = createDroneController('my-drone');
+await drone.connect({ host: '192.168.1.100', port: 8889 });
+await drone.takeoff(10);
+await drone.takePhoto();
+await drone.land();
+```
+
+📚 **[Full Drone Documentation](docs/DRONE_INTEGRATION.md)** | 🔧 **[Examples](examples/drone/)**
 
 ## 🚀 Getting Started
 
@@ -67,6 +102,9 @@ npm install
 
 # Start development server
 npm run dev
+
+# Run minimal drone MVP server (Prompt 28)
+npm run mvp
 
 # Build for production
 npm run build
@@ -90,6 +128,22 @@ npm run mobile:build
 - **PWA**: Workbox + Service Workers
 - **Desktop**: Electron (optional)
 - **Mobile**: Capacitor (optional)
+
+## 🛰️ Prompt 28 MVP (Drone Mission Skeleton)
+
+Minimal Express server to run a canned mission against the Autel drone SDK.
+
+1) Configure env: `DRONE_SSID`, `DRONE_PASSWORD`, optional `MVP_PORT` (defaults to 4001). See `.env.example`.
+2) Run the server: `npm run mvp`.
+3) Trigger a mission:
+
+```bash
+curl -X POST http://localhost:4001/api/mvp/mission \
+  -H "Content-Type: application/json" \
+  -d '{"missionName":"test","target":{"lat":37.7749,"lng":-122.4194,"alt":25}}'
+```
+
+Behavior: validates payload → connects to drone → preflight (battery >60%, GPS 3D lock with ≥8 satellites) → takeoff to starting altitude → flies simple 3-waypoint path (home → target hover 30s → home) at 6 m/s → return-to-home finish. Health check at `GET /api/mvp/health`.
 
 ## 🔐 Authentication Setup
 
@@ -126,6 +180,17 @@ Add this to your `.env.local` file as `NEXTAUTH_SECRET`
 npx prisma generate
 npx prisma db push
 ```
+
+## 🧩 Environment Variables
+
+Copy `.env.example` to `.env` (or `.env.local`) and fill in:
+
+- NEXTAUTH_SECRET: random 32-byte string
+- GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
+- GITHUB_ID / GITHUB_SECRET
+- STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
+- DRONE_SSID / DRONE_PASSWORD (Prompt 28 MVP server)
+- MVP_PORT (optional, defaults to 4001)
 
 ## 📱 Deployment Options
 

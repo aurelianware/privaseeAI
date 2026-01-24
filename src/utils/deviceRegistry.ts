@@ -2,7 +2,7 @@
 export interface Device {
   id: string; // Unique device identifier
   name: string; // User-friendly name
-  type: 'raspberry-pi' | 'mobile-ios' | 'mobile-android' | 'desktop-mac' | 'desktop-windows' | 'ip-camera' | 'nest-camera' | 'blink-camera';
+  type: 'raspberry-pi' | 'mobile-ios' | 'mobile-android' | 'desktop-mac' | 'desktop-windows' | 'ip-camera' | 'nest-camera' | 'blink-camera' | 'drone';
   platform: string; // OS/Platform details
   capabilities: DeviceCapabilities;
   status: 'online' | 'offline' | 'error' | 'maintenance';
