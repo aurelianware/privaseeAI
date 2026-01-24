@@ -1,8 +1,8 @@
 # Multi-stage build for production optimization
-FROM node:20-bullseye AS build
+FROM node:20.19-bullseye AS build
 WORKDIR /app
 # Use official Node.js runtime as base image
-FROM node:20-slim
+FROM node:20.19-slim
 
 # Install curl for health checks
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
@@ -24,7 +24,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM node:20-alpine AS runtime
+FROM node:20.19-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
