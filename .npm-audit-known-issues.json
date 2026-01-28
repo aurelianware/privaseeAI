@@ -6,6 +6,10 @@
     "notes": [
       "All security vulnerabilities have been resolved as of 2026-01-28",
       "Fixed using npm overrides for transitive dependencies (hono, lodash)",
+      "Previously tracked development-only vulnerabilities: cross-zip (GHSA-gj5f-73vh-wpf7) and esbuild (GHSA-67mh-4wv8-2f99)",
+      "cross-zip (GHSA-gj5f-73vh-wpf7) is no longer present because Electron-related dependencies that required it were removed from this project",
+      "esbuild (GHSA-67mh-4wv8-2f99) was resolved by upgrading the build tooling to Vite 7, which removed/updated the vulnerable esbuild version",
+      "These previously tracked vulnerabilities are therefore no longer present or relevant in the current dependency graph and are not counted toward the 14 npm vulnerabilities resolved in this PR",
       "Regular security audits should be run with: npm run security:check"
     ]
   }
