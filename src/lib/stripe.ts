@@ -80,6 +80,7 @@ export function getPlanByPriceId(priceId: string) {
 
 // Helper function to check if user has feature access
 export function hasFeatureAccess(userPlan: keyof typeof SUBSCRIPTION_PLANS, feature: string): boolean {
+  // eslint-disable-next-line security/detect-object-injection
   const plan = SUBSCRIPTION_PLANS[userPlan];
   return plan.features.some(f => f.toLowerCase().includes(feature.toLowerCase()));
 }
@@ -90,6 +91,7 @@ export function isWithinLimits(userPlan: keyof typeof SUBSCRIPTION_PLANS, usage:
   eventAge?: number; // hours
   storage?: string;
 }): boolean {
+  // eslint-disable-next-line security/detect-object-injection
   const plan = SUBSCRIPTION_PLANS[userPlan];
   
   if (usage.devices && usage.devices > plan.limits.devices) {

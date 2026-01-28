@@ -54,7 +54,18 @@ export class VideoStreamHandler {
   constructor(options: VideoStreamHandlerOptions = {}) {
     this.wsPath = options.wsPath ?? '/ws/video';
     this.maxBufferMs = options.maxBufferMs ?? 4000;
-    this.storageDir = options.storageDir ?? path.join(process.cwd(), 'data');
+    
+    // Sanitize storage directory to prevent path traversal
+    const baseDir = process.cwd();
+    const requestedDir = options.storageDir ?? path.join(baseDir, 'data');
+    const resolvedDir = path.resolve(requestedDir);
+    
+    // Ensure the resolved path is within the base directory
+    if (!resolvedDir.startsWith(baseDir)) {
+      throw new Error('Invalid storage directory: path traversal detected');
+    }
+    this.storageDir = resolvedDir;
+    
     this.compositeMode = options.compositeMode ?? 'picture-in-picture';
     this.keyframeIntervalMs = options.keyframeIntervalMs ?? 2000;
     this.targetBitrateMobile = options.targetBitrateMobile ?? 1_200_000; // ~1.2 Mbps
@@ -193,10 +204,29 @@ export class VideoStreamHandler {
   /** Begin recording session (JSONL stub). */
   public startRecording(): void {
     if (this.recordStream) return;
+    
+    // Create storage directory safely
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
     fs.mkdirSync(this.storageDir, { recursive: true });
-    const filePath = path.join(this.storageDir, `flight-${Date.now()}.jsonl`);
+    
+    // Generate safe file paths with timestamp
+    const timestamp = Date.now();
+    const fileName = `flight-${timestamp}.jsonl`;
+    const encFileName = `flight-${timestamp}-encrypted.bin`;
+    
+    // Resolve and validate file paths to prevent traversal
+    const filePath = path.resolve(this.storageDir, fileName);
+    const encPath = path.resolve(this.storageDir, encFileName);
+    
+    // Ensure paths are within storage directory
+    if (!filePath.startsWith(this.storageDir) || !encPath.startsWith(this.storageDir)) {
+      throw new Error('Invalid file path: attempted path traversal');
+    }
+    
+    // Paths have been validated against path traversal above
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
     this.recordStream = fs.createWriteStream(filePath, { flags: 'a' });
-    const encPath = path.join(this.storageDir, `flight-${Date.now()}-encrypted.bin`);
+    // eslint-disable-next-line security/detect-non-literal-fs-filename
     this.encryptedRecordStream = fs.createWriteStream(encPath, { flags: 'a' });
   }
 
