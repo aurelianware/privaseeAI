@@ -56,12 +56,13 @@ export class VideoStreamHandler {
     this.maxBufferMs = options.maxBufferMs ?? 4000;
     
     // Sanitize storage directory to prevent path traversal
-    const baseDir = process.cwd();
+    const baseDir = path.resolve(process.cwd());
     const requestedDir = options.storageDir ?? path.join(baseDir, 'data');
-    const resolvedDir = path.resolve(requestedDir);
+    const resolvedDir = path.resolve(baseDir, requestedDir);
     
-    // Ensure the resolved path is within the base directory
-    if (!resolvedDir.startsWith(baseDir)) {
+    // Ensure the resolved path is within the base directory using relative path check
+    const relativePath = path.relative(baseDir, resolvedDir);
+    if (relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
       throw new Error('Invalid storage directory: path traversal detected');
     }
     this.storageDir = resolvedDir;
@@ -214,12 +215,16 @@ export class VideoStreamHandler {
     const fileName = `flight-${timestamp}.jsonl`;
     const encFileName = `flight-${timestamp}-encrypted.bin`;
     
-    // Resolve and validate file paths to prevent traversal
+    // Resolve and validate file paths to prevent traversal using relative path check
     const filePath = path.resolve(this.storageDir, fileName);
     const encPath = path.resolve(this.storageDir, encFileName);
     
-    // Ensure paths are within storage directory
-    if (!filePath.startsWith(this.storageDir) || !encPath.startsWith(this.storageDir)) {
+    // Ensure paths are within storage directory by checking relative paths
+    const relativeFilePath = path.relative(this.storageDir, filePath);
+    const relativeEncPath = path.relative(this.storageDir, encPath);
+    
+    if (relativeFilePath.startsWith('..') || path.isAbsolute(relativeFilePath) ||
+        relativeEncPath.startsWith('..') || path.isAbsolute(relativeEncPath)) {
       throw new Error('Invalid file path: attempted path traversal');
     }
     

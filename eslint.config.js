@@ -51,7 +51,6 @@ export default [
         atob: 'readonly',
         btoa: 'readonly',
         crypto: 'readonly',
-        React: 'readonly',
         
         // Node.js globals for API routes and server-side code
         process: 'readonly',
