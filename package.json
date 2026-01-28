@@ -15,7 +15,7 @@
     "mobile:ios": "cap open ios",
     "mobile:android": "cap open android",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "lint:security": "eslint . --ext ts,tsx --config .eslintrc.json",
+    "lint:security": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "security:audit": "npm audit --audit-level high",
     "security:check": "npm run lint:security && npm run security:audit",
     "type-check": "tsc --noEmit",
@@ -90,5 +90,9 @@
     "react"
   ],
   "author": "Your Name",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "hono": "^4.11.7",
+    "lodash": "^4.17.23"
+  }
 }
