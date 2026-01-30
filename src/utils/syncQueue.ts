@@ -153,6 +153,7 @@ class SyncQueueService {
 
       // Process each item
       for (let i = 0; i < syncItems.length; i++) {
+        // eslint-disable-next-line security/detect-object-injection
         const item = syncItems[i];
         
         try {

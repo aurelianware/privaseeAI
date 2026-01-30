@@ -348,6 +348,7 @@ export class MissionPlanner {
     let totalDistance = 0;
 
     for (let i = 0; i < mission.waypoints.length - 1; i++) {
+      // eslint-disable-next-line security/detect-object-injection
       const wp1 = mission.waypoints[i];
       const wp2 = mission.waypoints[i + 1];
 

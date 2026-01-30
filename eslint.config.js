@@ -45,11 +45,18 @@ export default [
         clearTimeout: 'readonly',
         clearInterval: 'readonly',
         indexedDB: 'readonly',
+        localStorage: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
+        atob: 'readonly',
+        btoa: 'readonly',
+        crypto: 'readonly',
         
-        // Node.js globals for API routes
+        // Node.js globals for API routes and server-side code
         process: 'readonly',
         global: 'readonly',
-        NodeJS: 'readonly'
+        NodeJS: 'readonly',
+        Buffer: 'readonly'
       }
     },
     plugins: {

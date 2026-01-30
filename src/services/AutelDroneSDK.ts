@@ -1584,7 +1584,9 @@ export class AutelDroneSDK {
   private pointInPolygon(point: { latitude: number; longitude: number }, vertices: Array<{ latitude: number; longitude: number }>): boolean {
     let inside = false;
     for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+      // eslint-disable-next-line security/detect-object-injection
       const xi = vertices[i].longitude, yi = vertices[i].latitude;
+      // eslint-disable-next-line security/detect-object-injection
       const xj = vertices[j].longitude, yj = vertices[j].latitude;
       const intersect = ((yi > point.latitude) !== (yj > point.latitude)) &&
         (point.longitude < (xj - xi) * (point.latitude - yi) / (yj - yi + 1e-9) + xi);
@@ -1596,6 +1598,7 @@ export class AutelDroneSDK {
   private calculateMissionDistance(waypoints: Waypoint[]): number {
     let distance = 0;
     for (let i = 1; i < waypoints.length; i++) {
+      // eslint-disable-next-line security/detect-object-injection
       distance += this.haversineDistance(waypoints[i - 1], waypoints[i]);
     }
     return distance;

@@ -87,6 +87,7 @@ export class ThermalAnalyzer {
     const values = Array.from(temps);
     values.sort((a, b) => a - b);
     const mid = Math.floor(values.length / 2);
+    // eslint-disable-next-line security/detect-object-injection
     return values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
   }
 
@@ -105,8 +106,11 @@ export class ThermalAnalyzer {
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
         const i = idx(x, y);
+        // eslint-disable-next-line security/detect-object-injection
         if (visited[i]) continue;
+        // eslint-disable-next-line security/detect-object-injection
         visited[i] = 1;
+        // eslint-disable-next-line security/detect-object-injection
         const temp = tempArr[i];
         if (temp < threshold) continue;
 
@@ -119,9 +123,12 @@ export class ThermalAnalyzer {
           const p = stack.pop()!;
           const py = Math.floor(p / width);
           const px = p - py * width;
+          // eslint-disable-next-line security/detect-object-injection
           const t = tempArr[p];
           if (t < threshold) continue;
+          // eslint-disable-next-line security/detect-object-injection
           if (visited[p] === 2) continue;
+          // eslint-disable-next-line security/detect-object-injection
           visited[p] = 2;
           pixels.push(p);
           sum += t;
@@ -132,7 +139,9 @@ export class ThermalAnalyzer {
             const ny = py + dy;
             if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
             const ni = idx(nx, ny);
+            // eslint-disable-next-line security/detect-object-injection
             if (visited[ni] === 2) continue;
+            // eslint-disable-next-line security/detect-object-injection
             if (tempArr[ni] >= threshold) {
               stack.push(ni);
             }
