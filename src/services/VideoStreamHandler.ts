@@ -256,8 +256,11 @@ export class VideoStreamHandler {
       h: frame.height,
       data: frame.encoded.toString('base64')
     });
-    return new Promise((resolve) => {
-      this.recordStream!.write(line + '\n', resolve);
+    return new Promise<void>((resolve, reject) => {
+      this.recordStream!.write(line + '\n', (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
     });
   }
 

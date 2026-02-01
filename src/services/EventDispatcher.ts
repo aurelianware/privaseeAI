@@ -36,12 +36,6 @@ export interface DroneResponse {
 export class EventDispatcher extends EventEmitter {
   private eventQueue: Map<string, CameraEvent> = new Map();
   private droneResponses: Map<string, DroneResponse> = new Map();
-  private threatThresholds = {
-    low: 0.3,
-    medium: 0.6,
-    high: 0.8,
-    critical: 0.95,
-  };
 
   constructor() {
     super();

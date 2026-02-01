@@ -461,7 +461,7 @@ export class AutelDroneSDK {
    * @param ssid - WiFi network SSID
    * @param password - WiFi network password
    */
-  private async connectViaWiFi(ssid: string, password: string): Promise<void> {
+  private async connectViaWiFi(_ssid: string, _password: string): Promise<void> {
     // Simulate WiFi connection to drone
     // In actual implementation, this would call the Autel SDK WiFi connection method
     return new Promise((resolve, reject) => {
@@ -958,7 +958,7 @@ export class AutelDroneSDK {
    * await drone.land();
    * ```
    */
-  public async land(autoLanding: boolean = true): Promise<void> {
+  public async land(_autoLanding: boolean = true): Promise<void> {
     this.ensureConnected();
 
     const status = await this.getStatus();

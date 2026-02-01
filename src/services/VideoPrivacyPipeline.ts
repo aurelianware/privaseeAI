@@ -65,8 +65,12 @@ export class VideoPrivacyPipeline {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas unavailable');
 
-    // Draw source
-    const imageData = new ImageData(frame.data, frame.width, frame.height);
+    // Draw source - create new Uint8ClampedArray to ensure proper type
+    const imageData = new ImageData(
+      new Uint8ClampedArray(frame.data), 
+      frame.width, 
+      frame.height
+    );
     ctx.putImageData(imageData, 0, 0);
 
     // Privacy zones: stop recording by blanking zones in filtered output
@@ -126,7 +130,7 @@ export class VideoPrivacyPipeline {
     ctx.restore();
   }
 
-  private drawWatermark(ctx: OffscreenCanvasRenderingContext2D, w: number, h: number, droneId: string, ts: number) {
+  private drawWatermark(ctx: OffscreenCanvasRenderingContext2D, _w: number, h: number, droneId: string, ts: number) {
     const stamp = new Date(ts).toISOString();
     ctx.save();
     ctx.globalAlpha = 0.7;

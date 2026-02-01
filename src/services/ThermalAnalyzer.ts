@@ -282,7 +282,7 @@ export class ThermalAnalyzer {
     return results;
   }
 
-  private async logDetections(dets: ThermalDetection[], frame: ThermalFrame, ambient: number): Promise<void> {
+  private async logDetections(dets: ThermalDetection[], _frame: ThermalFrame, ambient: number): Promise<void> {
     if (!this.logger) return;
     const entries = dets.map(d => ({
       type: 'thermal_detection',
