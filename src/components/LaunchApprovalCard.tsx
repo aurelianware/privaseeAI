@@ -142,7 +142,7 @@ export const LaunchApprovalCard: React.FC<LaunchApprovalProps> = ({
 
       <p className="hint" aria-label="Offline status">{offline ? 'Offline: request will be queued' : 'Online approval'}</p>
 
-      <style jsx>{`
+      <style>{`
         .launch-card { max-width: 420px; width: 100%; background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 12px; }
         .header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
         .pill { background: #1d4ed8; color: #e0f2fe; padding: 4px 10px; border-radius: 999px; font-size: 12px; }

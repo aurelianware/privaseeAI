@@ -56,7 +56,7 @@ const formatSpeed = (s: number) => `${s.toFixed(1)} m/s`;
 const formatPercent = (p: number) => `${p.toFixed(0)}%`;
 
 const MissionDashboard: React.FC<MissionDashboardProps> = ({
-  missionId,
+  missionId: _missionId,
   websocketUrl,
   initialTelemetry,
   initialProgress,
@@ -220,7 +220,7 @@ const MissionDashboard: React.FC<MissionDashboardProps> = ({
         </section>
       </div>
 
-      <style jsx>{`
+      <style>{`
         .mission-dashboard { display: grid; gap: 16px; padding: 16px; }
         .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
         .card { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
