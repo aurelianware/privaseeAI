@@ -289,8 +289,7 @@ webhookRouter.post('/reject-drone-response', (req: Request, res: Response) => {
 webhookRouter.get('/status/:eventId', (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
-    
-    // Ensure eventId is a string (route params can be string | string[])
+    // TypeScript types req.params values as string | string[], so we need to handle both cases
     const eventIdStr = Array.isArray(eventId) ? eventId[0] : eventId;
 
     const event = eventDispatcher.getEvent(eventIdStr);
