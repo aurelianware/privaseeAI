@@ -157,11 +157,11 @@ export const LaunchApprovalCard: React.FC<LaunchApprovalProps> = ({
         .launch-approval-stat-label { color: #94a3b8; font-size: 12px; }
         .launch-approval-stat-value { font-weight: 600; }
         .launch-approval-actions { display: flex; flex-direction: column; gap: 8px; }
-        .launch-approval-approve, .launch-approval-cancel, .launch-approval-select { border: none; border-radius: 10px; padding: 12px; font-weight: 700; cursor: pointer; }
+        .launch-approval-approve, .launch-approval-cancel { border: none; border-radius: 10px; padding: 12px; font-weight: 700; cursor: pointer; }
         .launch-approval-approve { background: linear-gradient(90deg, #22c55e, #16a34a); color: #0b1220; }
         .launch-approval-approve:disabled, .launch-approval-cancel:disabled { opacity: 0.6; cursor: not-allowed; }
         .launch-approval-cancel-row { display: flex; gap: 8px; align-items: center; }
-        .launch-approval-select { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #1f2937; background: #0b1220; color: #e2e8f0; font-weight: normal; }
+        .launch-approval-select { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid #1f2937; background: #0b1220; color: #e2e8f0; font-weight: normal; cursor: pointer; }
         .launch-approval-cancel { background: #1f2937; color: #e2e8f0; padding: 12px 16px; }
         .launch-approval-hint { font-size: 12px; color: #94a3b8; margin: 0; }
         @media (max-width: 540px) {
