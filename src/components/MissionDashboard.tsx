@@ -56,7 +56,7 @@ const formatSpeed = (s: number) => `${s.toFixed(1)} m/s`;
 const formatPercent = (p: number) => `${p.toFixed(0)}%`;
 
 const MissionDashboard: React.FC<MissionDashboardProps> = ({
-  missionId,
+  missionId: _missionId,
   websocketUrl,
   initialTelemetry,
   initialProgress,
@@ -128,36 +128,36 @@ const MissionDashboard: React.FC<MissionDashboardProps> = ({
   }, [progress]);
 
   return (
-    <div className="mission-dashboard" aria-label="Drone mission dashboard">
-      <div className="grid" role="main">
-        <section className="card map" aria-label="Map and path">
-          <header className="card-header">Mission Map</header>
+    <div className="mission-dashboard-container" aria-label="Drone mission dashboard">
+      <div className="mission-dashboard-grid" role="main">
+        <section className="mission-dashboard-card mission-dashboard-map" aria-label="Map and path">
+          <header className="mission-dashboard-card-header">Mission Map</header>
           <MiniMap position={position} path={path} target={null} />
         </section>
 
-        <section className="card feeds" aria-label="Camera feeds">
-          <header className="card-header">Camera Feeds</header>
-          <div className="feed-toggles" role="group" aria-label="Camera toggles">
+        <section className="mission-dashboard-card mission-dashboard-feeds" aria-label="Camera feeds">
+          <header className="mission-dashboard-card-header">Camera Feeds</header>
+          <div className="mission-dashboard-feed-toggles" role="group" aria-label="Camera toggles">
             <label><input type="checkbox" checked={showVisual} onChange={(e) => setShowVisual(e.target.checked)} /> Visual</label>
             <label><input type="checkbox" checked={showThermal} onChange={(e) => setShowThermal(e.target.checked)} /> Thermal</label>
           </div>
-          <div className="feeds-body">
+          <div className="mission-dashboard-feeds-body">
             {showVisual && visualStreamUrl ? (
-              <video className="feed" src={visualStreamUrl} autoPlay muted playsInline aria-label="Visual camera feed" />
+              <video className="mission-dashboard-feed" src={visualStreamUrl} autoPlay muted playsInline aria-label="Visual camera feed" />
             ) : (
-              <div className="feed placeholder" aria-label="Visual feed unavailable">Visual feed off</div>
+              <div className="mission-dashboard-feed mission-dashboard-placeholder" aria-label="Visual feed unavailable">Visual feed off</div>
             )}
             {showThermal && thermalStreamUrl ? (
-              <video className="feed" src={thermalStreamUrl} autoPlay muted playsInline aria-label="Thermal camera feed" />
+              <video className="mission-dashboard-feed" src={thermalStreamUrl} autoPlay muted playsInline aria-label="Thermal camera feed" />
             ) : (
-              <div className="feed placeholder" aria-label="Thermal feed unavailable">Thermal feed off</div>
+              <div className="mission-dashboard-feed mission-dashboard-placeholder" aria-label="Thermal feed unavailable">Thermal feed off</div>
             )}
           </div>
         </section>
 
-        <section className="card telemetry" aria-label="Telemetry">
-          <header className="card-header">Telemetry</header>
-          <ul>
+        <section className="mission-dashboard-card mission-dashboard-telemetry" aria-label="Telemetry">
+          <header className="mission-dashboard-card-header">Telemetry</header>
+          <ul className="mission-dashboard-list">
             <li><strong>Altitude:</strong> {telemetry ? formatMeters(telemetry.altitude) : '—'}</li>
             <li><strong>Speed:</strong> {telemetry ? formatSpeed(telemetry.speed) : '—'}</li>
             <li><strong>Battery:</strong> {telemetry ? formatPercent(telemetry.battery) : '—'}</li>
@@ -166,80 +166,80 @@ const MissionDashboard: React.FC<MissionDashboardProps> = ({
           </ul>
         </section>
 
-        <section className="card progress" aria-label="Mission progress">
-          <header className="card-header">Mission Progress</header>
-          <div className="progress-row">
+        <section className="mission-dashboard-card mission-dashboard-progress" aria-label="Mission progress">
+          <header className="mission-dashboard-card-header">Mission Progress</header>
+          <div className="mission-dashboard-progress-row">
             <div><strong>Status:</strong> {progress?.status ?? '—'}</div>
             <div><strong>Waypoint:</strong> {progress ? `${progress.currentWaypoint}/${progress.totalWaypoints}` : '—'}</div>
             <div><strong>ETA:</strong> {eta}</div>
           </div>
-          <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={progress?.totalWaypoints ?? 1} aria-valuenow={progress?.currentWaypoint ?? 0}>
-            <div className="bar-fill" style={{ width: progress ? `${(progress.currentWaypoint / Math.max(progress.totalWaypoints, 1)) * 100}%` : '0%' }} />
+          <div className="mission-dashboard-bar" role="progressbar" aria-valuemin={0} aria-valuemax={progress?.totalWaypoints ?? 1} aria-valuenow={progress?.currentWaypoint ?? 0}>
+            <div className="mission-dashboard-bar-fill" style={{ width: progress ? `${(progress.currentWaypoint / Math.max(progress.totalWaypoints, 1)) * 100}%` : '0%' }} />
           </div>
         </section>
 
-        <section className="card alerts" aria-label="Threat alerts">
-          <header className="card-header">Threat Alerts</header>
-          <ul>
+        <section className="mission-dashboard-card mission-dashboard-alerts" aria-label="Threat alerts">
+          <header className="mission-dashboard-card-header">Threat Alerts</header>
+          <ul className="mission-dashboard-list">
             {alerts.length === 0 && <li>No alerts</li>}
             {alerts.map((a) => (
               <li key={a.id}>
-                <div className="alert-top">
-                  <span className="alert-label">{a.label}</span>
-                  <span className="alert-score">{(a.confidence * 100).toFixed(0)}%</span>
+                <div className="mission-dashboard-alert-top">
+                  <span className="mission-dashboard-alert-label">{a.label}</span>
+                  <span className="mission-dashboard-alert-score">{(a.confidence * 100).toFixed(0)}%</span>
                 </div>
-                <div className="alert-time">{new Date(a.timestamp).toLocaleTimeString()}</div>
+                <div className="mission-dashboard-alert-time">{new Date(a.timestamp).toLocaleTimeString()}</div>
               </li>
             ))}
           </ul>
         </section>
 
-        <section className="card controls" aria-label="Manual controls">
-          <header className="card-header">Manual Override</header>
-          <div className="controls-row" role="group" aria-label="Manual overrides">
-            <button onClick={onPause} aria-label="Pause mission">Pause</button>
-            <button onClick={onReturnHome} aria-label="Return to home">Return Home</button>
-            <button onClick={onEmergencyLand} className="danger" aria-label="Emergency land">Emergency Land</button>
+        <section className="mission-dashboard-card mission-dashboard-controls" aria-label="Manual controls">
+          <header className="mission-dashboard-card-header">Manual Override</header>
+          <div className="mission-dashboard-controls-row" role="group" aria-label="Manual overrides">
+            <button className="mission-dashboard-button" onClick={onPause} aria-label="Pause mission">Pause</button>
+            <button className="mission-dashboard-button" onClick={onReturnHome} aria-label="Return to home">Return Home</button>
+            <button className="mission-dashboard-button mission-dashboard-danger" onClick={onEmergencyLand} aria-label="Emergency land">Emergency Land</button>
           </div>
         </section>
 
-        <section className="card history" aria-label="Flight history">
-          <header className="card-header">Events</header>
-          <ul>
+        <section className="mission-dashboard-card mission-dashboard-history" aria-label="Flight history">
+          <header className="mission-dashboard-card-header">Events</header>
+          <ul className="mission-dashboard-list">
             {events.length === 0 && <li>No events</li>}
             {events.map(ev => (
               <li key={ev.id}>
-                <div className="event-top">
-                  <span className="event-type">{ev.type}</span>
-                  <span className="event-time">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                <div className="mission-dashboard-event-top">
+                  <span className="mission-dashboard-event-type">{ev.type}</span>
+                  <span className="mission-dashboard-event-time">{new Date(ev.timestamp).toLocaleTimeString()}</span>
                 </div>
-                <div className="event-msg">{ev.message}</div>
+                <div className="mission-dashboard-event-msg">{ev.message}</div>
               </li>
             ))}
           </ul>
         </section>
       </div>
 
-      <style jsx>{`
-        .mission-dashboard { display: grid; gap: 16px; padding: 16px; }
-        .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-        .card { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
-        .card-header { font-weight: 600; margin-bottom: 8px; }
-        .feeds-body { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-        .feed { width: 100%; border-radius: 8px; background: #111827; }
-        .feed.placeholder { display: flex; align-items: center; justify-content: center; color: #94a3b8; min-height: 140px; border: 1px dashed #334155; }
-        .feed-toggles { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
-        .telemetry ul, .alerts ul, .history ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-        .progress .bar { background: #1f2937; border-radius: 6px; height: 10px; margin-top: 8px; }
-        .bar-fill { background: linear-gradient(90deg, #22c55e, #10b981); height: 100%; border-radius: 6px; transition: width 0.2s ease; }
-        .alert-top, .event-top { display: flex; justify-content: space-between; font-weight: 600; }
-        .controls-row { display: flex; gap: 8px; flex-wrap: wrap; }
-        button { padding: 8px 12px; border-radius: 6px; border: 1px solid #1f2937; background: #1e293b; color: #e2e8f0; cursor: pointer; }
-        button:focus { outline: 2px solid #38bdf8; outline-offset: 2px; }
-        button.danger { background: #7f1d1d; border-color: #b91c1c; }
-        .map-svg { width: 100%; height: 220px; background: #0b1220; border-radius: 8px; }
+      <style>{`
+        .mission-dashboard-container { display: grid; gap: 16px; padding: 16px; }
+        .mission-dashboard-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+        .mission-dashboard-card { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
+        .mission-dashboard-card-header { font-weight: 600; margin-bottom: 8px; }
+        .mission-dashboard-feeds-body { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+        .mission-dashboard-feed { width: 100%; border-radius: 8px; background: #111827; }
+        .mission-dashboard-feed.mission-dashboard-placeholder { display: flex; align-items: center; justify-content: center; color: #94a3b8; min-height: 140px; border: 1px dashed #334155; }
+        .mission-dashboard-feed-toggles { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
+        .mission-dashboard-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+        .mission-dashboard-progress .mission-dashboard-bar { background: #1f2937; border-radius: 6px; height: 10px; margin-top: 8px; }
+        .mission-dashboard-bar-fill { background: linear-gradient(90deg, #22c55e, #10b981); height: 100%; border-radius: 6px; transition: width 0.2s ease; }
+        .mission-dashboard-alert-top, .mission-dashboard-event-top { display: flex; justify-content: space-between; font-weight: 600; }
+        .mission-dashboard-controls-row { display: flex; gap: 8px; flex-wrap: wrap; }
+        .mission-dashboard-button { padding: 8px 12px; border-radius: 6px; border: 1px solid #1f2937; background: #1e293b; color: #e2e8f0; cursor: pointer; }
+        .mission-dashboard-button:focus { outline: 2px solid #38bdf8; outline-offset: 2px; }
+        .mission-dashboard-button.mission-dashboard-danger { background: #7f1d1d; border-color: #b91c1c; }
+        .mission-dashboard-map-svg { width: 100%; height: 220px; background: #0b1220; border-radius: 8px; }
         @media (max-width: 640px) {
-          .feeds-body { grid-template-columns: 1fr; }
+          .mission-dashboard-feeds-body { grid-template-columns: 1fr; }
         }
       `}</style>
     </div>
@@ -277,7 +277,7 @@ const MiniMap: React.FC<MiniMapProps> = ({ position, path, target }) => {
   };
 
   return (
-    <svg className="map-svg" role="img" aria-label="Flight path map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
+    <svg className="mission-dashboard-map-svg" role="img" aria-label="Flight path map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
       <rect x="0" y="0" width="100" height="100" fill="#0b1220" />
       {/* Path */}
       {path.length > 1 && (

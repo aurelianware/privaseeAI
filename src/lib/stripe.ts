@@ -6,7 +6,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
 
 // Initialize Stripe with secret key
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2025-11-17.clover', // Use latest stable API version
+  apiVersion: '2025-12-15.clover', // Use latest stable API version
 });
 
 // Subscription plan configuration

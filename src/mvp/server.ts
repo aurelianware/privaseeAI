@@ -48,7 +48,7 @@ function buildMission(status: Awaited<ReturnType<typeof drone.getStatus>>, targe
 
   const waypoints = [
     { index: 0, latitude: home.latitude, longitude: home.longitude, altitude: target.altitude, hoverTime: 0 },
-    { index: 1, latitude: target.latitude, longitude: target.longitude, altitude: target.altitude, hoverTime: 30, action: 'hover' },
+    { index: 1, latitude: target.latitude, longitude: target.longitude, altitude: target.altitude, hoverTime: 30, action: 'hover' as const },
     { index: 2, latitude: home.latitude, longitude: home.longitude, altitude: target.altitude, hoverTime: 0 }
   ];
 

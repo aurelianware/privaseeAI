@@ -7,11 +7,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import eventDispatcher, { CameraEvent, DroneResponse } from '../services/EventDispatcher';
-import { FlightOrchestrator } from '../services/FlightOrchestrator';
+// import { FlightOrchestrator } from '../services/FlightOrchestrator';
 import logger from '../utils/logger';
 
 const webhookRouter = Router();
-const flightOrchestrator = new FlightOrchestrator();
+// const flightOrchestrator = new FlightOrchestrator(); // TODO: Implement missing methods generateMission and executeMission
 
 // Webhook authentication middleware
 const authenticateWebhook = (req: Request, res: Response, next: NextFunction) => {
@@ -112,6 +112,9 @@ webhookRouter.post('/camera-event', async (req: Request, res: Response) => {
           // If critical threat, auto-launch
           if (threatLevel === 'critical') {
             try {
+              // TODO: Implement FlightOrchestrator methods
+              logger.info(`Critical threat detected at ${location.latitude},${location.longitude} - drone launch disabled (not implemented)`);
+              /*
               const mission = await flightOrchestrator.generateMission(
                 {
                   latitude: location.latitude,
@@ -127,13 +130,14 @@ webhookRouter.post('/camera-event', async (req: Request, res: Response) => {
               });
 
               // Initiate flight asynchronously (don't wait for completion)
-              flightOrchestrator.executeMission(mission).catch((err) => {
+              flightOrchestrator.executeMission(mission).catch((err: Error) => {
                 logger.error(`Mission execution failed: ${err.message}`);
                 eventDispatcher.updateDroneResponse(event.id, {
                   status: 'failed',
                   error: err.message,
                 });
               });
+              */
             } catch (err) {
               logger.error(`Failed to generate mission: ${err}`);
               eventDispatcher.updateDroneResponse(event.id, {
@@ -209,13 +213,16 @@ webhookRouter.post('/approve-drone-response', (req: Request, res: Response) => {
     // Trigger mission execution
     const event = eventDispatcher.getEvent(eventId);
     if (event) {
-      flightOrchestrator.generateMission(event.location, 'investigate').then((mission) => {
+      // TODO: Implement FlightOrchestrator methods
+      logger.info(`Approving mission for event ${eventId} - drone launch disabled (not implemented)`);
+      /*
+      flightOrchestrator.generateMission(event.location, 'investigate').then((mission: any) => {
         eventDispatcher.updateDroneResponse(eventId, {
           status: 'executing',
           missionId: mission.id,
         });
 
-        flightOrchestrator.executeMission(mission).catch((err) => {
+        flightOrchestrator.executeMission(mission).catch((err: Error) => {
           logger.error(`Mission execution failed: ${err.message}`);
           eventDispatcher.updateDroneResponse(eventId, {
             status: 'failed',
@@ -223,6 +230,7 @@ webhookRouter.post('/approve-drone-response', (req: Request, res: Response) => {
           });
         });
       });
+      */
     }
 
     res.json({
@@ -281,9 +289,11 @@ webhookRouter.post('/reject-drone-response', (req: Request, res: Response) => {
 webhookRouter.get('/status/:eventId', (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    // TypeScript types req.params values as string | string[], so we need to handle both cases
+    const eventIdStr = Array.isArray(eventId) ? eventId[0] : eventId;
 
-    const event = eventDispatcher.getEvent(eventId);
-    const droneResponse = eventDispatcher.getDroneResponse(eventId);
+    const event = eventDispatcher.getEvent(eventIdStr);
+    const droneResponse = eventDispatcher.getDroneResponse(eventIdStr);
 
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
@@ -306,7 +316,7 @@ webhookRouter.get('/status/:eventId', (req: Request, res: Response) => {
  * GET /webhook/pending-approvals
  * Get all pending drone responses awaiting approval
  */
-webhookRouter.get('/pending-approvals', (req: Request, res: Response) => {
+webhookRouter.get('/pending-approvals', (_req: Request, res: Response) => {
   try {
     const pendingApprovals = eventDispatcher.getPendingApprovals();
 
@@ -341,7 +351,7 @@ webhookRouter.get('/pending-approvals', (req: Request, res: Response) => {
  * GET /webhook/stats
  * Get dispatcher statistics
  */
-webhookRouter.get('/stats', (req: Request, res: Response) => {
+webhookRouter.get('/stats', (_req: Request, res: Response) => {
   try {
     const stats = eventDispatcher.getStats();
     res.json(stats);

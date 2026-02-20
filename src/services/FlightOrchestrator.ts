@@ -1,7 +1,6 @@
 import AutelDroneSDK, {
   MissionPlanningInput,
   MissionPlanResult,
-  PreFlightCheckResult,
   CameraFrame,
   WaypointMission,
   MissionEvent
@@ -40,7 +39,6 @@ export interface OrchestratorConfig {
 
 export class FlightOrchestrator {
   private phase: FlightPhase = 'idle';
-  private currentMission: MissionPlanResult | null = null;
   private readonly drone: AutelDroneSDK;
   private readonly config: OrchestratorConfig;
   private monitorTimer: NodeJS.Timeout | null = null;
@@ -76,7 +74,7 @@ export class FlightOrchestrator {
 
       this.setPhase('planning');
       const mission = await this.planMission(event);
-      this.currentMission = mission;
+      // this.currentMission = mission; // Removed as unused
 
       this.setPhase('launching');
       await this.ensureAirborne();
@@ -155,18 +153,6 @@ export class FlightOrchestrator {
     ).catch(err => console.error('Stream start failed', err));
   }
 
-  private async awaitMissionCompletion(): Promise<void> {
-    // Deprecated polling path kept for compatibility
-    while (true) {
-      const progress = this.drone.getMissionProgress();
-      if (!progress) break;
-      await this.delay(1000);
-      if (progress.currentWaypointIndex >= (progress.mission.waypoints.length - 1)) {
-        break;
-      }
-    }
-  }
-
   private async awaitMissionCompletionWithEvents(eventId: string): Promise<void> {
     const unsubscribe = this.drone.onMissionEvent(async (evt: MissionEvent) => {
       if (evt.type === 'waypoint-reached') {
@@ -225,10 +211,6 @@ export class FlightOrchestrator {
     this.config.saveLog({ type: 'phase_change', phase: next, timestamp: new Date().toISOString() }).catch(() => {
       /* ignore logging errors */
     });
-  }
-
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 
