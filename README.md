@@ -29,33 +29,6 @@ PRIVASEE AI is a single-page application with an Express backend, designed for e
   <img src="architecture_diagram.png" alt="PRIVASEE AI" width="640" />
 </p>
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│                   Browser / Mobile / Tablet                    │
-│          React + Vite · TailwindCSS · Sentinel Dark Theme      │
-└──────────────────────────┬─────────────────────────────────────┘
-                           │
-                 ┌─────────┴──────────┐
-                 │  Express Backend   │  ← Node.js · server.js
-                 │    :8080           │     AES-256-GCM settings
-                 └─────────┬──────────┘     Prisma → PostgreSQL
-                           │
-          ┌────────────────┼─────────────────┐
-          │                │                 │
-  ┌───────┴──────┐  ┌──────┴──────┐  ┌──────┴───────┐
-  │  Azure Blob  │  │  Azure AD   │  │  Azure       │
-  │  Storage     │  │  (MSAL v5)  │  │  PostgreSQL  │
-  │  (Events +   │  │  Auth0      │  │  (UserSettings│
-  │   Media)     │  │  OAuth 2.0  │  │   multi-tenant│
-  └──────────────┘  └─────────────┘  └──────────────┘
-          │
-  ┌───────┴──────────────────────────────────────────┐
-  │              TensorFlow.js / COCO-SSD            │
-  │   Real-time object detection in-browser (WebGL)  │
-  │   Drone SDK: Autel EVO Lite via WebSocket        │
-  └──────────────────────────────────────────────────┘
-```
-
 ---
 
 ## Quick Start
