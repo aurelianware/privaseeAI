@@ -52,6 +52,8 @@
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.0",
     "stripe": "^20.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
     "workbox-window": "^7.0.0",
     "ws": "^8.19.0"
   },
@@ -82,8 +84,6 @@
     "postcss": "^8.4.29",
     "react-refresh": "^0.18.0",
     "tailwindcss": "^4.1.17",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.4.0",
     "vite": "^7.3.1",
     "vite-plugin-pwa": "^1.1.0",
     "vitest": "^4.0.18"
