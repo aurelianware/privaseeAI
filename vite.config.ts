@@ -8,7 +8,14 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    port: 3000
+    port: 3000,
+    proxy: {
+      '/api': 'http://localhost:3002',
+      '/streams': 'http://localhost:3002',
+      '/thermal': 'http://localhost:3002',
+      '/health': 'http://localhost:3002',
+      '/ws': { target: 'ws://localhost:3002', ws: true }
+    }
   },
   build: {
     target: 'es2020',

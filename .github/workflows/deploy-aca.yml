@@ -84,9 +84,14 @@ jobs:
           --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
           --set-env-vars \
             NODE_ENV=production \
-            NEXTAUTH_URL=secretref:nextauth-url \
-            NEXTAUTH_SECRET=secretref:nextauth-secret \
-            AZURE_STORAGE_CONNECTION_STRING=secretref:azure-storage-connection
+            PORT=8080 \
+            DATABASE_URL=${{ secrets.DATABASE_URL }} \
+            SETTINGS_ENCRYPTION_KEY=${{ secrets.SETTINGS_ENCRYPTION_KEY }} \
+            STRIPE_SECRET_KEY=${{ secrets.STRIPE_SECRET_KEY }} \
+            STRIPE_PRO_PRICE_ID=${{ secrets.STRIPE_PRO_PRICE_ID }} \
+            STRIPE_ENTERPRISE_PRICE_ID=${{ secrets.STRIPE_ENTERPRISE_PRICE_ID }} \
+            STRIPE_WEBHOOK_SECRET=${{ secrets.STRIPE_WEBHOOK_SECRET }} \
+            AZURE_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}
 
     - name: Get Container App URL
       run: |
