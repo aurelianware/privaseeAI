@@ -115,3 +115,12 @@ debug*.json
 
 # Deployment artifacts
 *.zip
+
+# Raw source media / working assets (not for version control)
+*.har
+IMG_*.jpeg
+IMG_*.jpg
+image copy.*
+privaseeailogo.mp4
+ffc572da-*.mp4
+1ECD8C57-*.png

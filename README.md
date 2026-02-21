@@ -2,335 +2,228 @@
   <img src="public/privaseeai-kubrick.png" alt="PRIVASEE AI" width="320" />
 </p>
 
-# privaseeAI
+<h1 align="center">PRIVASEE AI</h1>
+<p align="center"><strong>The Sentinel — AI-Powered Edge Security Monitoring Platform</strong></p>
 
-A sophisticated **web-based security monitoring application** that uses AI object detection to identify and track objects in real-time video streams. Built with React, TypeScript, and TensorFlow.js, featuring advanced overlay detection and cloud synchronization.
+<p align="center">
+  A cloud-native, privacy-first security monitoring system that runs real-time AI object detection on live video streams, syncs events to Azure Blob Storage, and supports multi-tenant deployments across distributed edge devices.
+</p>
 
-## 🌟 Key Features
+<p align="center">
+  <a href="https://opensource.org/licenses/Apache-2.0"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0" /></a>
+  <img src="https://img.shields.io/badge/React-18-61dafb" alt="React 18" />
+  <img src="https://img.shields.io/badge/TypeScript-5-3178c6" alt="TypeScript 5" />
+  <img src="https://img.shields.io/badge/Vite-7-646cff" alt="Vite 7" />
+  <img src="https://img.shields.io/badge/Azure-Container_Apps-0078d4" alt="Azure Container Apps" />
+  <img src="https://img.shields.io/badge/TensorFlow.js-COCO--SSD-ff6f00" alt="TensorFlow.js" />
+</p>
 
-### **🎯 Advanced Object Detection**
-- **COCO-SSD Model**: State-of-the-art object detection using TensorFlow.js
-- **Real-time Processing**: Live object identification in video streams  
-- **Multiple Object Types**: Detects people, vehicles, animals, and everyday objects
-- **Confidence Scoring**: Shows detection confidence percentages
-- **Visual Overlays**: Color-coded bounding boxes with labels
+---
 
-### **📹 Enhanced Video Recording with Overlays**
-- **Overlay Recording**: Videos include detection bounding boxes and labels
-- **Smart Triggering**: Automatic recording when significant objects are detected
-- **Multiple Formats**: Support for WebM and MP4 video formats
-- **Canvas Stream Capture**: Records video + detection overlays simultaneously
-- **Background Recording**: Non-blocking video capture
+## Architecture
 
-### **📸 Annotated Image Capture**
-- **Detection Overlays**: Images include bounding boxes and labels
-- **Position Data**: Exact pixel coordinates for each detection
-- **Timestamp Information**: When each detection occurred
-- **High Quality**: JPEG format with configurable quality
+PRIVASEE AI is a single-page application with an Express backend, designed for edge deployment on any device with a camera.
 
-### **🎨 Advanced Visual Indicators**
-- **Color-coded Bounding Boxes**: 
-  - 🔴 Red: People (high priority alerts)
-  - 🟠 Orange: Vehicles (medium priority) 
-  - 🟢 Green: Other objects (low priority)
-- **Detection Labels**: Object type and confidence percentage
-- **Position Coordinates**: Exact location information
-- **Alert Levels**: Visual priority indicators with corner markers
-
-### **💾 Robust Storage & Sync System**
-- **IndexedDB Storage**: Fast local data persistence with proper initialization
-- **Blob Management**: Efficient image/video storage and retrieval
-- **Azure Cloud Sync**: Background synchronization with queue management
-- **Offline Support**: Full functionality without internet connection
-- **Database Initialization**: Proper timing to prevent race conditions
-
-### **⚙️ Comprehensive Settings**
-- **Detection Thresholds**: Adjustable sensitivity controls
-- **Recording Configuration**: Duration, format, and quality settings
-- **Storage Management**: Automatic cleanup and retention policies
-- **Cloud Integration**: Azure Blob Storage configuration
-- **Performance Tuning**: Adaptive settings for different devices
-
-### **🚁 Drone Integration (NEW!)**
-- **Autel EVO Lite Support**: Complete SDK integration for aerial surveillance
-- **Flight Control**: Takeoff, landing, waypoint navigation, RTH
-- **Mission Planning**: Autonomous missions with waypoint validation
-- **Event System**: Real-time telemetry and battery monitoring
-- **Error Recovery**: Automatic failsafe and recovery mechanisms
-- **Privacy-First**: Encrypted logs, local storage, configurable retention
-- 📚 **[View Drone Documentation](docs/DRONE_INTEGRATION.md)**
-
-## 🛠 Technology Stack
-
-- **Frontend**: React 18 + TypeScript + Vite
-- **AI/ML**: TensorFlow.js with COCO-SSD model
-- **Camera**: WebRTC Media APIs with canvas overlay system
-- **Styling**: Tailwind CSS + Framer Motion
-- **Storage**: IndexedDB with proper async initialization
-- **Cloud**: Azure Blob Storage with SAS token authentication
-- **PWA**: Workbox + Service Workers for offline functionality
-- **Build**: Vite with TypeScript compilation
-- **Deployment**: Vercel/Netlify ready, mobile PWA support
-- **Drone SDK**: Autel EVO Lite integration with TypeScript
-
-## 🚁 Drone Features
-
-privaseeAI includes a complete Node.js/TypeScript SDK for integrating Autel EVO Lite drones into your surveillance system:
-
-- **Flight Control**: Full control API for takeoff, landing, navigation
-- **Mission Planning**: Create and validate waypoint-based autonomous missions
-- **Event Handling**: Real-time telemetry, battery warnings, obstacle detection
-- **Error Recovery**: Automatic recovery strategies with failsafe protocols
-- **Logging**: Comprehensive flight operation logging
-- **Device Integration**: Seamless integration with existing device management
-
-### Quick Start with Drone
-
-```typescript
-import { createDroneController } from './src/drone';
-
-const drone = createDroneController('my-drone');
-await drone.connect({ host: '192.168.1.100', port: 8889 });
-await drone.takeoff(10);
-await drone.takePhoto();
-await drone.land();
+```
+┌────────────────────────────────────────────────────────────────┐
+│                   Browser / Mobile / Tablet                    │
+│          React + Vite · TailwindCSS · Sentinel Dark Theme      │
+└──────────────────────────┬─────────────────────────────────────┘
+                           │
+                 ┌─────────┴──────────┐
+                 │  Express Backend   │  ← Node.js · server.js
+                 │    :8080           │     AES-256-GCM settings
+                 └─────────┬──────────┘     Prisma → PostgreSQL
+                           │
+          ┌────────────────┼─────────────────┐
+          │                │                 │
+  ┌───────┴──────┐  ┌──────┴──────┐  ┌──────┴───────┐
+  │  Azure Blob  │  │  Azure AD   │  │  Azure       │
+  │  Storage     │  │  (MSAL v5)  │  │  PostgreSQL  │
+  │  (Events +   │  │  Auth0      │  │  (UserSettings│
+  │   Media)     │  │  OAuth 2.0  │  │   multi-tenant│
+  └──────────────┘  └─────────────┘  └──────────────┘
+          │
+  ┌───────┴──────────────────────────────────────────┐
+  │              TensorFlow.js / COCO-SSD            │
+  │   Real-time object detection in-browser (WebGL)  │
+  │   Drone SDK: Autel EVO Lite via WebSocket        │
+  └──────────────────────────────────────────────────┘
 ```
 
-📚 **[Full Drone Documentation](docs/DRONE_INTEGRATION.md)** | 🔧 **[Examples](examples/drone/)**
+---
 
-## 🚀 Getting Started
+## Quick Start
+
+### Docker / Azure Container Apps
 
 ```bash
-# Install dependencies
+git clone https://github.com/aurelianware/privaseeAI.git
+cd privaseeAI
+docker build -t privaseeai .
+docker run -p 8080:8080 privaseeai
+```
+
+App: http://localhost:8080
+
+### Local Development
+
+```bash
+# Prerequisites: Node.js 20+, npm
+
+git clone https://github.com/aurelianware/privaseeAI.git
+cd privaseeAI
+
 npm install
 
-# Start development server
+# Copy and fill in environment variables
+cp .env.example .env.local
+
+# Start Vite dev server (frontend)
 npm run dev
 
-# Run minimal drone MVP server (Prompt 28)
-npm run mvp
-
-# Build for production
-npm run build
-
-# Create desktop app (Electron)
-npm run electron
-
-# Create mobile app (Capacitor)
-npm run mobile:build
+# In a second terminal — start Express backend
+npm start
 ```
 
-## 🛠 Tech Stack
-
-- **Frontend**: React + TypeScript + Vite
-- **ML**: TensorFlow.js + YOLO models
-- **Camera**: WebRTC Media APIs
-- **Styling**: Tailwind CSS + Framer Motion
-- **Storage**: IndexedDB + Azure Blob Storage
-- **Authentication**: NextAuth.js + OAuth providers
-- **Database**: Prisma + SQLite/PostgreSQL
-- **PWA**: Workbox + Service Workers
-- **Desktop**: Electron (optional)
-- **Mobile**: Capacitor (optional)
-
-## 🛰️ Prompt 28 MVP (Drone Mission Skeleton)
-
-Minimal Express server to run a canned mission against the Autel drone SDK.
-
-1) Configure env: `DRONE_SSID`, `DRONE_PASSWORD`, optional `MVP_PORT` (defaults to 4001). See `.env.example`.
-2) Run the server: `npm run mvp`.
-3) Trigger a mission:
-
-```bash
-curl -X POST http://localhost:4001/api/mvp/mission \
-  -H "Content-Type: application/json" \
-  -d '{"missionName":"test","target":{"lat":37.7749,"lng":-122.4194,"alt":25}}'
-```
-
-Behavior: validates payload → connects to drone → preflight (battery >60%, GPS 3D lock with ≥8 satellites) → takeoff to starting altitude → flies simple 3-waypoint path (home → target hover 30s → home) at 6 m/s → return-to-home finish. Health check at `GET /api/mvp/health`.
-
-## 🔐 Authentication Setup
-
-This app includes OAuth authentication with Google and GitHub providers. To set up authentication for development:
-
-### 1. Copy Environment Variables
-```bash
-cp .env.example .env.local
-```
-
-### 2. Google OAuth Setup
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable the Google+ API
-4. Go to **Credentials** > **Create Credentials** > **OAuth 2.0 Client IDs**
-5. Set the authorized redirect URI to: `http://localhost:3001/api/auth/callback/google`
-6. Copy the Client ID and Client Secret to your `.env.local` file
-
-### 3. GitHub OAuth Setup
-1. Go to **GitHub Settings** > **Developer settings** > **OAuth Apps**
-2. Click **New OAuth App**
-3. Set Homepage URL to: `http://localhost:3001`
-4. Set Authorization callback URL to: `http://localhost:3001/api/auth/callback/github`
-5. Copy the Client ID and Client Secret to your `.env.local` file
-
-### 4. Generate NextAuth Secret
-```bash
-openssl rand -base64 32
-```
-Add this to your `.env.local` file as `NEXTAUTH_SECRET`
-
-### 5. Initialize Database
-```bash
-npx prisma generate
-npx prisma db push
-```
-
-## 🧩 Environment Variables
-
-Copy `.env.example` to `.env` (or `.env.local`) and fill in:
-
-- NEXTAUTH_SECRET: random 32-byte string
-- GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET
-- GITHUB_ID / GITHUB_SECRET
-- STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET
-- DRONE_SSID / DRONE_PASSWORD (Prompt 28 MVP server)
-- MVP_PORT (optional, defaults to 4001)
-
-## 📱 Deployment Options
-
-1. **Web App**: Deploy to Vercel/Netlify
-2. **Desktop App**: Package with Electron
-3. **Mobile App**: Build with Capacitor
-4. **Edge Deployment**: Use Edge Workers
-
-This approach lets you:
-- ✅ Develop everything in VS Code
-- ✅ Use TensorFlow.js for ML
-- ✅ Access device cameras
-- ✅ Deploy to web, desktop, and mobile
-- ✅ Integrate with Azure cloud services
-- ✅ Learn modern web ML development
+Frontend: http://localhost:3000 · Backend: http://localhost:8080
 
 ---
 
-## 🚀 Production Readiness Checklist
+## Features
 
-PrivaseeAI is production-ready with enterprise-grade infrastructure and security.
+### Real-Time AI Detection
+- **COCO-SSD / TensorFlow.js** — in-browser WebGL object detection, zero server-side inference latency
+- **Detection overlays** — colour-coded bounding boxes rendered on a canvas stream capture
+- **Confidence scoring** — per-object confidence percentages, configurable threshold
+- **Annotated captures** — JPEG snapshots and WebM/MP4 recordings with detection overlays baked in
 
-### ✅ Docker & Containerization
-- [x] **Multi-stage Dockerfile**: Optimized build with `node:20-bullseye` → `node:20-alpine`
-- [x] **Production Dependencies**: Separate build and runtime dependencies
-- [x] **Health Checks**: Built-in health monitoring at `/healthz` endpoint
-- [x] **Small Image Size**: Alpine-based runtime for minimal footprint
-- [x] **Security Scanning**: Container vulnerability scanning in CI/CD
+### Security Event Pipeline
+- **Severity classification** — critical / high / medium / low with Sentinel colour coding
+- **IndexedDB local storage** — full offline capability with proper IDB initialisation and reopen on close
+- **Azure Blob sync** — background upload queue with SAS token auth; media blobs preserved with original MIME types
+- **Real-time event list** — live "time ago" ticker, media playback modal, error surface for `MediaError` codes
 
-### ✅ CI/CD Pipeline
-- [x] **Build Workflow** (`build-and-push.yml`):
-  - Automated builds on every commit
-  - Pushes images to Azure Container Registry (ACR)
-  - Uses Azure Managed Identity for authentication
-  - Tags images with commit SHA and `latest`
-  
-- [x] **Deploy Workflow** (`deploy-aca.yml`):
-  - Automated deployment to Azure Container Apps
-  - Environment-based configuration
-  - Automatic health checks post-deployment
-  - Rollback capability with image tags
+### Multi-Tenant SaaS
+- **Per-user encrypted settings** — AES-256-GCM server-side settings API, keyed by Azure AD `oid`
+- **Azure PostgreSQL** — `UserSettings` table, Prisma schema, raw SQL migration included
+- **MSAL v5** — `@azure/msal-browser` + `@azure/msal-react`; Auth0 also supported
 
-### ✅ Security Headers & HTTPS
-- [x] **HSTS**: HTTP Strict Transport Security with 1-year max-age
-- [x] **CSP**: Content Security Policy for XSS protection
-- [x] **CORS**: Whitelist for `privaseeai.net` domain
-- [x] **Referrer-Policy**: Strict origin control
-- [x] **Permissions-Policy**: Camera/microphone access controls
-- [x] **X-Frame-Options**: Clickjacking protection (DENY)
-- [x] **X-Content-Type-Options**: MIME-sniffing prevention
-- [x] **HTTPS Redirect**: Automatic redirect in production
-
-### ✅ Database & Multi-Tenancy
-- [x] **Prisma Schema**: PostgreSQL-ready production schema
-- [x] **Multi-Tenant Models**:
-  - `Tenant`: Organization-level isolation
-  - `User`: Multi-tenant user management with roles
-  - `Event`: Security events with tenant isolation
-  - `Device`: Camera/device management
-- [x] **Indexes**: Optimized queries for tenant/user/timestamp
-- [x] **Migrations**: Database migration infrastructure ready
-- [x] **Data Isolation**: Row-level tenant separation
-
-### ✅ Azure Blob Lifecycle Management
-- [x] **Automatic Deletion**: 30-day retention policy for old blobs
-- [x] **Cost Optimization**: Auto-tier to Cool storage after 7 days
-- [x] **Prefix Filters**: Applies to `events/`, `media/`, `recordings/`
-- [x] **Infrastructure as Code**: `infra/blob-lifecycle.json` policy
-- [x] **Easy Deployment**: Azure CLI command for policy application
-
-### ✅ Monitoring & Observability
-- [x] **Application Insights**: Optional Azure Monitor integration
-- [x] **Health Endpoints**: `/healthz`, `/health`, `/api/health`
-- [x] **Structured Logging**: Startup diagnostics and runtime logs
-- [x] **Metrics**: Uptime, node version, directory structure
-- [x] **Graceful Shutdown**: SIGTERM/SIGINT handling
-
-### ✅ Environment Configuration
-Required secrets for production deployment:
-- `AZURE_CLIENT_ID`: Managed Identity client ID
-- `AZURE_TENANT_ID`: Azure tenant ID
-- `AZURE_SUBSCRIPTION_ID`: Azure subscription ID
-- `ACR_NAME`: Azure Container Registry name
-- `AZURE_RESOURCE_GROUP`: Resource group name
-- `ACA_ENVIRONMENT`: Container Apps environment name
-- `DATABASE_URL`: PostgreSQL connection string
-- `NEXTAUTH_SECRET`: NextAuth.js secret key
-- `AZURE_STORAGE_CONNECTION_STRING`: Blob storage connection
-
-### 📋 Deployment Steps
-
-#### 1. Initial Setup
-```bash
-# Generate Prisma client
-npx prisma generate
-
-# Run migrations
-npx prisma migrate deploy
-```
-
-#### 2. Apply Blob Lifecycle Policy
-```bash
-az storage account management-policy create \
-  -g <resource-group> \
-  -n <storage-account> \
-  --policy @infra/blob-lifecycle.json
-```
-
-#### 3. Configure GitHub Secrets
-Add all required secrets to your GitHub repository settings under Settings → Secrets and variables → Actions.
-
-#### 4. Deploy
-Push to `main` branch or manually trigger workflows:
-```bash
-git push origin main
-```
-
-The CI/CD pipeline will automatically:
-1. Build and test the application
-2. Build and push Docker image to ACR
-3. Deploy to Azure Container Apps
-4. Run health checks
-
-### 🔒 Security Best Practices
-- **No hardcoded secrets**: All sensitive data via environment variables
-- **Managed Identity**: Azure authentication without credentials
-- **SAS tokens**: Time-limited blob storage access
-- **Rate limiting**: Protection against detection spam
-- **Input validation**: Prisma schema validation
-- **HTTPS only**: Production traffic encrypted in transit
-
-### 📊 Performance & Scalability
-- **Auto-scaling**: 1-3 replicas based on load
-- **Resource limits**: 0.5 CPU, 1GB memory per container
-- **CDN-ready**: Static assets served efficiently
-- **Edge optimization**: TensorFlow.js runs in browser
-- **Offline-first**: IndexedDB for local resilience
+### Multi-Camera & Drone
+- **IP / RTSP camera management** — add cameras by ID + RTSP URL; HLS transcoding via server
+- **AGM Taipan V2 thermal** — auto-detect probe
+- **Autel EVO Lite drone SDK** — takeoff/landing, waypoint missions, RTH, emergency land via WebSocket relay
 
 ---
+
+## Technology Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend framework | React 18 + TypeScript 5 |
+| Build tool | Vite 7 |
+| Styling | Tailwind CSS + inline Sentinel design tokens |
+| AI inference | TensorFlow.js · COCO-SSD (WebGL) |
+| Authentication | MSAL v5 (Azure AD) · Auth0 |
+| Backend | Node.js · Express |
+| Database ORM | Prisma 7 |
+| Database | Azure Database for PostgreSQL (Flexible Server) |
+| Media storage | Azure Blob Storage (SAS, CORS) |
+| Containerisation | Docker (multi-stage, node:20-alpine runtime) |
+| Deployment | Azure Container Apps (via GitHub Actions CI/CD) |
+| Container registry | Azure Container Registry (ACR) |
+| IaC | Azure Bicep (`deploy/azure-app-service.bicep`) |
+
+---
+
+## Project Structure
+
+```
+privaseeAI/
+├── src/
+│   ├── App.tsx                    # Root component — Sentinel UI shell
+│   ├── components/
+│   │   ├── CameraStream.tsx       # WebRTC camera + TensorFlow inference loop
+│   │   ├── DetectionOverlay.tsx   # Canvas bounding box renderer
+│   │   ├── EventsList.tsx         # Security event feed with media playback
+│   │   ├── HlsVideoPlayer.tsx     # IP camera HLS stream player
+│   │   ├── MissionDashboard.tsx   # Drone mission control UI
+│   │   ├── SettingsPanel.tsx      # User settings + Azure config
+│   │   └── Auth.tsx / Auth0Components.tsx / AuthProvider.tsx
+│   ├── hooks/
+│   │   └── useUserSettings.ts     # AES-256-GCM encrypted settings hook
+│   ├── drone/                     # Autel EVO Lite SDK adapters
+│   └── utils/
+│       ├── storage.ts             # IndexedDB local event store
+│       └── syncQueue.ts           # Azure Blob upload queue
+├── prisma/
+│   ├── schema.prisma              # UserSettings model
+│   └── migrations/                # Raw SQL migrations
+├── public/
+│   ├── logo/                      # Animated logo (WebM + MP4 + poster)
+│   ├── privaseeai-kubrick.png     # Brand hero image
+│   └── privaseeai-brand.png       # Chrome 3D brand render
+├── deploy/
+│   └── azure-app-service.bicep    # Azure Bicep IaC
+├── infra/
+│   └── blob-lifecycle.json        # Blob storage lifecycle policy
+├── docs/
+│   ├── AZURE_DEPLOYMENT.md
+│   ├── DEPLOYMENT_GUIDE.md
+│   ├── SECURITY.md
+│   ├── DRONE_INTEGRATION.md
+│   ├── DRONE_SETUP.md
+│   └── STRIPE_SETUP.md
+├── .github/workflows/             # CI/CD: build-and-push → deploy-aca
+├── server.js                      # Express backend (settings API, HLS proxy)
+├── Dockerfile                     # Multi-stage production build
+└── vite.config.ts
+```
+
+---
+
+## CI/CD
+
+Push to `main` triggers a two-stage GitHub Actions pipeline:
+
+1. **`build-and-push.yml`** — builds the Docker image, tags with `$GITHUB_SHA`, pushes to ACR
+2. **`deploy-aca.yml`** — updates the Azure Container App with the new image tag
+
+Required GitHub secrets: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_RESOURCE_GROUP`, `ACR_NAME`, `ACA_ENVIRONMENT`.
+
+See [docs/AZURE_DEPLOYMENT.md](docs/AZURE_DEPLOYMENT.md) for full setup.
+
+---
+
+## Roadmap
+
+- [x] Real-time COCO-SSD detection with canvas overlay recording
+- [x] Azure Blob Storage cloud sync with SAS auth
+- [x] Multi-tenant AES-256-GCM encrypted user settings
+- [x] Azure PostgreSQL backend with Prisma
+- [x] MSAL v5 Microsoft Entra ID authentication
+- [x] Sentinel brand redesign (dark glass-morphism, Kubrick aesthetic)
+- [x] Animated logo video integration
+- [x] IP / RTSP multi-camera management with HLS
+- [x] Autel EVO Lite drone SDK integration
+- [x] Docker + Azure Container Apps CI/CD pipeline
+- [ ] YOLO v8 model swap for higher accuracy
+- [ ] WebRTC peer-to-peer multi-device streaming
+- [ ] Push notifications (Azure Notification Hubs)
+- [ ] Mobile native app (Capacitor / iOS)
+- [ ] Stripe billing for SaaS tiers
+- [ ] Audit log export (SIEM integration)
+
+---
+
+## Related Projects
+
+- **[Cloud Dental Office](https://github.com/aurelianware/clouddentaloffice)** — SaaS dental practice management with integrated privaseeAI vision service for narcotics cabinet monitoring, consent recording, and insurance card OCR
+- Together, privaseeAI + Cloud Dental Office form a full provider-side AI vision + compliance stack
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE) — Copyright 2026 Aurelianware
+
