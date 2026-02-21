@@ -1,13 +1,22 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Activity, AlertTriangle, ArrowLeft, Battery, Cpu, Gauge,
+  MapPin, Navigation, PauseCircle, Radio, RefreshCw, RotateCcw,
+  Thermometer, TriangleAlert, Zap,
+} from 'lucide-react';
+import HlsVideoPlayer from './HlsVideoPlayer';
+import './MissionDashboard.css';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface Telemetry {
   lat: number;
   lng: number;
-  altitude: number; // meters
-  speed: number; // m/s
-  battery: number; // 0-100
+  altitude: number;
+  speed: number;
+  battery: number;
   gpsFix: 'none' | '2d' | '3d';
-  distanceFromHome: number; // meters
+  distanceFromHome: number;
 }
 
 export interface MissionProgress {
@@ -15,7 +24,7 @@ export interface MissionProgress {
   currentWaypoint: number;
   totalWaypoints: number;
   etaSeconds?: number;
-  status: 'idle' | 'preflight' | 'launching' | 'flying' | 'returning' | 'landing' | 'complete' | 'error';
+  status: 'idle' | 'preflight' | 'planning' | 'launching' | 'flying' | 'returning' | 'landing' | 'complete' | 'error';
 }
 
 export interface ThreatAlert {
@@ -34,16 +43,17 @@ export interface MissionEvent {
 
 export interface MissionDashboardProps {
   missionId: string;
-  websocketUrl?: string; // e.g., ws://host/ws/mission
+  websocketUrl?: string;
   initialTelemetry?: Telemetry;
   initialProgress?: MissionProgress;
   initialAlerts?: ThreatAlert[];
   initialEvents?: MissionEvent[];
-  visualStreamUrl?: string; // HLS/MP4/WS relay
-  thermalStreamUrl?: string;
+  visualStreamUrl?: string | null;
+  thermalStreamUrl?: string | null;
   onPause?: () => void;
   onReturnHome?: () => void;
   onEmergencyLand?: () => void;
+  onMissionEnd?: () => void;
 }
 
 interface WsPayload {
@@ -51,9 +61,34 @@ interface WsPayload {
   data: any;
 }
 
-const formatMeters = (m: number) => `${m.toFixed(0)} m`;
-const formatSpeed = (s: number) => `${s.toFixed(1)} m/s`;
-const formatPercent = (p: number) => `${p.toFixed(0)}%`;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmt = {
+  m: (v: number) => `${v.toFixed(0)} m`,
+  speed: (v: number) => `${v.toFixed(1)} m/s`,
+  pct: (v: number) => `${v.toFixed(0)}%`,
+  time: (s: string) => new Date(s).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+};
+
+type StatusVariant = 'idle' | 'warning' | 'active' | 'complete' | 'error';
+
+function statusVariant(status?: MissionProgress['status']): { variant: StatusVariant; pulse: boolean } {
+  if (!status || status === 'idle') return { variant: 'idle', pulse: false };
+  if (status === 'preflight' || status === 'planning') return { variant: 'warning', pulse: true };
+  if (status === 'complete') return { variant: 'complete', pulse: false };
+  if (status === 'error') return { variant: 'error', pulse: true };
+  return { variant: 'active', pulse: true };
+}
+
+type BatteryVariant = 'green' | 'yellow' | 'red';
+
+function batteryVariant(pct: number): BatteryVariant {
+  if (pct < 20) return 'red';
+  if (pct < 40) return 'yellow';
+  return 'green';
+}
+
+// ─── MissionDashboard ─────────────────────────────────────────────────────────
 
 const MissionDashboard: React.FC<MissionDashboardProps> = ({
   missionId: _missionId,
@@ -66,13 +101,16 @@ const MissionDashboard: React.FC<MissionDashboardProps> = ({
   thermalStreamUrl,
   onPause,
   onReturnHome,
-  onEmergencyLand
+  onEmergencyLand,
+  onMissionEnd,
 }) => {
   const [telemetry, setTelemetry] = useState<Telemetry | undefined>(initialTelemetry);
   const [progress, setProgress] = useState<MissionProgress | undefined>(initialProgress);
   const [alerts, setAlerts] = useState<ThreatAlert[]>(initialAlerts ?? []);
   const [events, setEvents] = useState<MissionEvent[]>(initialEvents ?? []);
-  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(initialTelemetry ? { lat: initialTelemetry.lat, lng: initialTelemetry.lng } : null);
+  const [position, setPosition] = useState<{ lat: number; lng: number } | null>(
+    initialTelemetry ? { lat: initialTelemetry.lat, lng: initialTelemetry.lng } : null,
+  );
   const [path, setPath] = useState<Array<{ lat: number; lng: number }>>([]);
   const [showVisual, setShowVisual] = useState(true);
   const [showThermal, setShowThermal] = useState(true);
@@ -105,19 +143,14 @@ const MissionDashboard: React.FC<MissionDashboardProps> = ({
             setPosition(payload.data);
             setPath(prev => [...prev.slice(-199), payload.data]);
             break;
-          default:
-            break;
         }
       } catch (e) {
         console.error('WS parse error', e);
       }
     };
 
-    ws.onerror = (e) => console.error('WS error', e);
-    return () => {
-      ws.close();
-      wsRef.current = null;
-    };
+    ws.onerror = (e) => console.error('[mission ws] error', e);
+    return () => { ws.close(); wsRef.current = null; };
   }, [websocketUrl]);
 
   const eta = useMemo(() => {
@@ -127,124 +160,193 @@ const MissionDashboard: React.FC<MissionDashboardProps> = ({
     return `${mins}m ${secs}s`;
   }, [progress]);
 
+  const { variant: sVariant, pulse: sPulse } = statusVariant(progress?.status);
+  const progressPct = progress
+    ? (progress.currentWaypoint / Math.max(progress.totalWaypoints, 1)) * 100
+    : 0;
+  const missionDone = progress?.status === 'complete' || progress?.status === 'error';
+
   return (
-    <div className="mission-dashboard-container" aria-label="Drone mission dashboard">
-      <div className="mission-dashboard-grid" role="main">
-        <section className="mission-dashboard-card mission-dashboard-map" aria-label="Map and path">
-          <header className="mission-dashboard-card-header">Mission Map</header>
-          <MiniMap position={position} path={path} target={null} />
-        </section>
-
-        <section className="mission-dashboard-card mission-dashboard-feeds" aria-label="Camera feeds">
-          <header className="mission-dashboard-card-header">Camera Feeds</header>
-          <div className="mission-dashboard-feed-toggles" role="group" aria-label="Camera toggles">
-            <label><input type="checkbox" checked={showVisual} onChange={(e) => setShowVisual(e.target.checked)} /> Visual</label>
-            <label><input type="checkbox" checked={showThermal} onChange={(e) => setShowThermal(e.target.checked)} /> Thermal</label>
-          </div>
-          <div className="mission-dashboard-feeds-body">
-            {showVisual && visualStreamUrl ? (
-              <video className="mission-dashboard-feed" src={visualStreamUrl} autoPlay muted playsInline aria-label="Visual camera feed" />
-            ) : (
-              <div className="mission-dashboard-feed mission-dashboard-placeholder" aria-label="Visual feed unavailable">Visual feed off</div>
-            )}
-            {showThermal && thermalStreamUrl ? (
-              <video className="mission-dashboard-feed" src={thermalStreamUrl} autoPlay muted playsInline aria-label="Thermal camera feed" />
-            ) : (
-              <div className="mission-dashboard-feed mission-dashboard-placeholder" aria-label="Thermal feed unavailable">Thermal feed off</div>
-            )}
-          </div>
-        </section>
-
-        <section className="mission-dashboard-card mission-dashboard-telemetry" aria-label="Telemetry">
-          <header className="mission-dashboard-card-header">Telemetry</header>
-          <ul className="mission-dashboard-list">
-            <li><strong>Altitude:</strong> {telemetry ? formatMeters(telemetry.altitude) : '—'}</li>
-            <li><strong>Speed:</strong> {telemetry ? formatSpeed(telemetry.speed) : '—'}</li>
-            <li><strong>Battery:</strong> {telemetry ? formatPercent(telemetry.battery) : '—'}</li>
-            <li><strong>GPS:</strong> {telemetry ? telemetry.gpsFix : '—'}</li>
-            <li><strong>Distance Home:</strong> {telemetry ? formatMeters(telemetry.distanceFromHome) : '—'}</li>
-          </ul>
-        </section>
-
-        <section className="mission-dashboard-card mission-dashboard-progress" aria-label="Mission progress">
-          <header className="mission-dashboard-card-header">Mission Progress</header>
-          <div className="mission-dashboard-progress-row">
-            <div><strong>Status:</strong> {progress?.status ?? '—'}</div>
-            <div><strong>Waypoint:</strong> {progress ? `${progress.currentWaypoint}/${progress.totalWaypoints}` : '—'}</div>
-            <div><strong>ETA:</strong> {eta}</div>
-          </div>
-          <div className="mission-dashboard-bar" role="progressbar" aria-valuemin={0} aria-valuemax={progress?.totalWaypoints ?? 1} aria-valuenow={progress?.currentWaypoint ?? 0}>
-            <div className="mission-dashboard-bar-fill" style={{ width: progress ? `${(progress.currentWaypoint / Math.max(progress.totalWaypoints, 1)) * 100}%` : '0%' }} />
-          </div>
-        </section>
-
-        <section className="mission-dashboard-card mission-dashboard-alerts" aria-label="Threat alerts">
-          <header className="mission-dashboard-card-header">Threat Alerts</header>
-          <ul className="mission-dashboard-list">
-            {alerts.length === 0 && <li>No alerts</li>}
-            {alerts.map((a) => (
-              <li key={a.id}>
-                <div className="mission-dashboard-alert-top">
-                  <span className="mission-dashboard-alert-label">{a.label}</span>
-                  <span className="mission-dashboard-alert-score">{(a.confidence * 100).toFixed(0)}%</span>
-                </div>
-                <div className="mission-dashboard-alert-time">{new Date(a.timestamp).toLocaleTimeString()}</div>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        <section className="mission-dashboard-card mission-dashboard-controls" aria-label="Manual controls">
-          <header className="mission-dashboard-card-header">Manual Override</header>
-          <div className="mission-dashboard-controls-row" role="group" aria-label="Manual overrides">
-            <button className="mission-dashboard-button" onClick={onPause} aria-label="Pause mission">Pause</button>
-            <button className="mission-dashboard-button" onClick={onReturnHome} aria-label="Return to home">Return Home</button>
-            <button className="mission-dashboard-button mission-dashboard-danger" onClick={onEmergencyLand} aria-label="Emergency land">Emergency Land</button>
-          </div>
-        </section>
-
-        <section className="mission-dashboard-card mission-dashboard-history" aria-label="Flight history">
-          <header className="mission-dashboard-card-header">Events</header>
-          <ul className="mission-dashboard-list">
-            {events.length === 0 && <li>No events</li>}
-            {events.map(ev => (
-              <li key={ev.id}>
-                <div className="mission-dashboard-event-top">
-                  <span className="mission-dashboard-event-type">{ev.type}</span>
-                  <span className="mission-dashboard-event-time">{new Date(ev.timestamp).toLocaleTimeString()}</span>
-                </div>
-                <div className="mission-dashboard-event-msg">{ev.message}</div>
-              </li>
-            ))}
-          </ul>
-        </section>
+    <div>
+      {/* ── Top bar ── */}
+      <div className="md-topbar">
+        <div className="md-topbar-title">
+          <Radio className="h-4 w-4" />
+          LIVE MISSION — {(progress?.missionName ?? 'EVO LITE 640T').toUpperCase()}
+        </div>
+        <div className={`md-status-badge md-status-badge--${sVariant}`}>
+          <span className={`md-status-dot md-status-dot--${sVariant}${sPulse ? ' animate-pulse' : ''}`} />
+          {progress?.status ?? 'idle'}
+        </div>
       </div>
 
-      <style>{`
-        .mission-dashboard-container { display: grid; gap: 16px; padding: 16px; }
-        .mission-dashboard-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-        .mission-dashboard-card { background: #0f172a; color: #e2e8f0; border-radius: 10px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,0.2); }
-        .mission-dashboard-card-header { font-weight: 600; margin-bottom: 8px; }
-        .mission-dashboard-feeds-body { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-        .mission-dashboard-feed { width: 100%; border-radius: 8px; background: #111827; }
-        .mission-dashboard-feed.mission-dashboard-placeholder { display: flex; align-items: center; justify-content: center; color: #94a3b8; min-height: 140px; border: 1px dashed #334155; }
-        .mission-dashboard-feed-toggles { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
-        .mission-dashboard-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
-        .mission-dashboard-progress .mission-dashboard-bar { background: #1f2937; border-radius: 6px; height: 10px; margin-top: 8px; }
-        .mission-dashboard-bar-fill { background: linear-gradient(90deg, #22c55e, #10b981); height: 100%; border-radius: 6px; transition: width 0.2s ease; }
-        .mission-dashboard-alert-top, .mission-dashboard-event-top { display: flex; justify-content: space-between; font-weight: 600; }
-        .mission-dashboard-controls-row { display: flex; gap: 8px; flex-wrap: wrap; }
-        .mission-dashboard-button { padding: 8px 12px; border-radius: 6px; border: 1px solid #1f2937; background: #1e293b; color: #e2e8f0; cursor: pointer; }
-        .mission-dashboard-button:focus { outline: 2px solid #38bdf8; outline-offset: 2px; }
-        .mission-dashboard-button.mission-dashboard-danger { background: #7f1d1d; border-color: #b91c1c; }
-        .mission-dashboard-map-svg { width: 100%; height: 220px; background: #0b1220; border-radius: 8px; }
-        @media (max-width: 640px) {
-          .mission-dashboard-feeds-body { grid-template-columns: 1fr; }
-        }
-      `}</style>
+      {/* ── Main grid ── */}
+      <div className="md-grid">
+
+        {/* Map */}
+        <div className="md-card">
+          <p className="md-card-header"><MapPin className="inline h-3 w-3 mr-1" />Flight Map</p>
+          <MiniMap position={position} path={path} target={null} />
+          {position && (
+            <p className="md-map-coords">{position.lat.toFixed(5)}, {position.lng.toFixed(5)}</p>
+          )}
+        </div>
+
+        {/* Camera feeds */}
+        <div className="md-card">
+          <div className="md-card-header-row">
+            <p className="md-card-header"><Cpu className="inline h-3 w-3 mr-1" />Camera Feeds</p>
+            <div className="md-feed-toggles">
+              <label className="flex items-center gap-1 cursor-pointer select-none">
+                <input type="checkbox" checked={showVisual} onChange={e => setShowVisual(e.target.checked)} className="accent-cyan-400" />
+                Visual
+              </label>
+              <label className="flex items-center gap-1 cursor-pointer select-none">
+                <input type="checkbox" checked={showThermal} onChange={e => setShowThermal(e.target.checked)} className="accent-cyan-400" />
+                Thermal
+              </label>
+            </div>
+          </div>
+          <div className={`md-feeds-grid ${showVisual && showThermal ? 'md-feeds-grid--dual' : 'md-feeds-grid--single'}`}>
+            {showVisual && (
+              <FeedSlot label="Visual" streamUrl={visualStreamUrl ?? null} icon={<Cpu className="h-4 w-4" />} />
+            )}
+            {showThermal && (
+              <FeedSlot label="Thermal" streamUrl={thermalStreamUrl ?? null} icon={<Thermometer className="h-4 w-4" />} />
+            )}
+          </div>
+        </div>
+
+        {/* Telemetry */}
+        <div className="md-card">
+          <p className="md-card-header"><Activity className="inline h-3 w-3 mr-1" />Telemetry</p>
+          <div className="space-y-2">
+            <TelRow icon={<Navigation className="h-3.5 w-3.5" />} label="Altitude" value={telemetry ? fmt.m(telemetry.altitude) : '—'} />
+            <TelRow icon={<Gauge className="h-3.5 w-3.5" />} label="Speed" value={telemetry ? fmt.speed(telemetry.speed) : '—'} />
+            <TelRow
+              icon={<Battery className="h-3.5 w-3.5" />}
+              label="Battery"
+              value={telemetry ? fmt.pct(telemetry.battery) : '—'}
+              valueVariant={telemetry ? batteryVariant(telemetry.battery) : undefined}
+            />
+            <TelRow icon={<MapPin className="h-3.5 w-3.5" />} label="GPS" value={telemetry?.gpsFix ?? '—'} />
+            <TelRow icon={<Navigation className="h-3.5 w-3.5" />} label="Distance" value={telemetry ? fmt.m(telemetry.distanceFromHome) : '—'} />
+          </div>
+        </div>
+
+        {/* Mission progress */}
+        <div className="md-card">
+          <p className="md-card-header"><Zap className="inline h-3 w-3 mr-1" />Mission Progress</p>
+          <div className="space-y-3">
+            <div className="md-progress-info">
+              <span>Waypoint</span>
+              <span>{progress ? `${progress.currentWaypoint} / ${progress.totalWaypoints}` : '— / —'}</span>
+            </div>
+            <div className="md-progress-info">
+              <span>ETA</span>
+              <span>{eta}</span>
+            </div>
+            <div className="md-progress-track">
+              <div
+                className={`md-progress-fill ${missionDone && progress?.status === 'error' ? 'md-progress-fill--error' : ''}`}
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <p className="md-progress-pct">{progressPct.toFixed(0)}% complete</p>
+          </div>
+        </div>
+
+        {/* Threat alerts */}
+        <div className="md-card">
+          <p className="md-card-header"><TriangleAlert className="inline h-3 w-3 mr-1" />Threat Alerts</p>
+          <div className="md-alerts-list">
+            {alerts.length === 0 && <p className="md-alert-empty">No alerts</p>}
+            {alerts.map(a => (
+              <div key={a.id} className="md-alert-item">
+                <div className="md-alert-left">
+                  <AlertTriangle className="h-3 w-3 md-alert-icon" />
+                  {a.label}
+                </div>
+                <div className="md-alert-meta">
+                  <span>{(a.confidence * 100).toFixed(0)}%</span>
+                  <span>{fmt.time(a.timestamp)}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Controls */}
+        <div className="md-card">
+          <p className="md-card-header"><RefreshCw className="inline h-3 w-3 mr-1" />Manual Override</p>
+          <div className="md-ctrl-list">
+            <button type="button" className="md-ctrl-btn md-ctrl-btn--cyan" onClick={onPause}>
+              <PauseCircle className="h-4 w-4" /> Pause Mission
+            </button>
+            <button type="button" className="md-ctrl-btn md-ctrl-btn--yellow" onClick={onReturnHome}>
+              <RotateCcw className="h-4 w-4" /> Return to Home
+            </button>
+            <button type="button" className="md-ctrl-btn md-ctrl-btn--red" onClick={onEmergencyLand}>
+              <AlertTriangle className="h-4 w-4" /> Emergency Land
+            </button>
+            {missionDone && onMissionEnd && (
+              <button type="button" className="md-ctrl-btn md-ctrl-btn--green" onClick={onMissionEnd}>
+                <ArrowLeft className="h-4 w-4" /> New Mission
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Events log */}
+        <div className="md-card md-card--full">
+          <p className="md-card-header"><Radio className="inline h-3 w-3 mr-1" />Event Log</p>
+          <div className="md-events-list">
+            {events.length === 0 && <p className="md-events-empty">No events</p>}
+            {events.map(ev => (
+              <div key={ev.id} className="md-event-row">
+                <span className="md-event-time">{fmt.time(ev.timestamp)}</span>
+                <span className="md-event-type">{ev.type}</span>
+                <span className="md-event-msg">{ev.message}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </div>
     </div>
   );
 };
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+const TelRow: React.FC<{ icon: React.ReactNode; label: string; value: string; valueVariant?: BatteryVariant }> = ({
+  icon, label, value, valueVariant,
+}) => (
+  <div className="md-tel-row">
+    <div className="md-tel-label">{icon}{label}</div>
+    <span className={`md-tel-value${valueVariant ? ` md-tel-value--${valueVariant}` : ''}`}>{value}</span>
+  </div>
+);
+
+const FeedSlot: React.FC<{ label: string; streamUrl: string | null; icon: React.ReactNode }> = ({
+  label, streamUrl, icon,
+}) => {
+  if (!streamUrl) {
+    return (
+      <div className="md-feed-empty">
+        {icon}
+        <span>{label} — no feed</span>
+      </div>
+    );
+  }
+  return (
+    <div className="md-feed-video">
+      <HlsVideoPlayer src={streamUrl} className="w-full" label={`${label} camera feed`} />
+    </div>
+  );
+};
+
+// ─── MiniMap ──────────────────────────────────────────────────────────────────
 
 interface MiniMapProps {
   position: { lat: number; lng: number } | null;
@@ -253,7 +355,6 @@ interface MiniMapProps {
 }
 
 const MiniMap: React.FC<MiniMapProps> = ({ position, path, target }) => {
-  // Simple normalized map using min/max of path for relative plotting
   const bounds = useMemo(() => {
     const pts = [...path];
     if (position) pts.push(position);
@@ -261,37 +362,75 @@ const MiniMap: React.FC<MiniMapProps> = ({ position, path, target }) => {
     if (pts.length === 0) return null;
     const lats = pts.map(p => p.lat);
     const lngs = pts.map(p => p.lng);
+    const pad = 0.00005;
     return {
-      minLat: Math.min(...lats),
-      maxLat: Math.max(...lats),
-      minLng: Math.min(...lngs),
-      maxLng: Math.max(...lngs)
+      minLat: Math.min(...lats) - pad,
+      maxLat: Math.max(...lats) + pad,
+      minLng: Math.min(...lngs) - pad,
+      maxLng: Math.max(...lngs) + pad,
     };
   }, [path, position, target]);
 
   const project = (p: { lat: number; lng: number }) => {
     if (!bounds) return { x: 50, y: 50 };
-    const x = ((p.lng - bounds.minLng) / Math.max(bounds.maxLng - bounds.minLng, 1e-6)) * 100;
-    const y = (1 - (p.lat - bounds.minLat) / Math.max(bounds.maxLat - bounds.minLat, 1e-6)) * 100;
+    const x = ((p.lng - bounds.minLng) / Math.max(bounds.maxLng - bounds.minLng, 1e-8)) * 96 + 2;
+    const y = (1 - (p.lat - bounds.minLat) / Math.max(bounds.maxLat - bounds.minLat, 1e-8)) * 96 + 2;
     return { x, y };
   };
 
   return (
-    <svg className="mission-dashboard-map-svg" role="img" aria-label="Flight path map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet">
-      <rect x="0" y="0" width="100" height="100" fill="#0b1220" />
-      {/* Path */}
+    <svg
+      role="img"
+      aria-label="Flight path map"
+      viewBox="0 0 100 100"
+      preserveAspectRatio="xMidYMid meet"
+      className="md-map-svg"
+    >
+      {[20, 40, 60, 80].map(n => (
+        <React.Fragment key={n}>
+          <line x1={n} y1={0} x2={n} y2={100} stroke="rgba(0,255,255,0.06)" strokeWidth="0.4" />
+          <line x1={0} y1={n} x2={100} y2={n} stroke="rgba(0,255,255,0.06)" strokeWidth="0.4" />
+        </React.Fragment>
+      ))}
+
       {path.length > 1 && (
         <polyline
           points={path.map(p => { const pr = project(p); return `${pr.x},${pr.y}`; }).join(' ')}
           fill="none"
-          stroke="#38bdf8"
-          strokeWidth="1.5"
+          stroke="rgba(0,255,255,0.5)"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
         />
       )}
-      {/* Target */}
-      {target && (() => { const t = project(target); return <circle cx={t.x} cy={t.y} r={2} fill="#f97316" aria-label="Target" />; })()}
-      {/* Current position */}
-      {position && (() => { const c = project(position); return <circle cx={c.x} cy={c.y} r={2.5} fill="#22c55e" aria-label="Drone position" />; })()}
+
+      {target && (() => {
+        const t = project(target);
+        return (
+          <>
+            <circle cx={t.x} cy={t.y} r={4} fill="none" stroke="#ff6600" strokeWidth="1" />
+            <circle cx={t.x} cy={t.y} r={1.5} fill="#ff6600" />
+          </>
+        );
+      })()}
+
+      {path.length > 0 && (() => {
+        const h = project(path[0]);
+        return <rect x={h.x - 2} y={h.y - 2} width={4} height={4} fill="rgba(0,255,136,0.5)" rx={0.5} />;
+      })()}
+
+      {position && (() => {
+        const c = project(position);
+        return (
+          <>
+            <circle cx={c.x} cy={c.y} r={5} fill="none" stroke="rgba(0,255,136,0.3)" strokeWidth="0.8" />
+            <circle cx={c.x} cy={c.y} r={2.5} fill="#00ff88" />
+          </>
+        );
+      })()}
+
+      {!position && path.length === 0 && (
+        <text x="50" y="52" textAnchor="middle" fontSize="5" fill="rgba(255,255,255,0.2)">Awaiting telemetry…</text>
+      )}
     </svg>
   );
 };

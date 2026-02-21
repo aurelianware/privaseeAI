@@ -304,7 +304,7 @@ export type DroneEventCallback = (status: DroneStatus) => void;
 export type CameraFrameCallback = (frame: CameraFrame) => void;
 export type ConnectionEventCallback = (connected: boolean) => void;
 export type ErrorEventCallback = (error: Error) => void;
-export type MissionEventType = 'mission-started' | 'waypoint-reached' | 'mission-complete' | 'mission-error';
+export type MissionEventType = 'mission-started' | 'waypoint-reached' | 'mission-complete' | 'mission-stopped' | 'mission-error';
 export interface MissionEvent {
   type: MissionEventType;
   mission: WaypointMission;
@@ -354,6 +354,7 @@ export class AutelDroneSDK {
   private currentWaypointIndex: number = 0;
   private missionPaused: boolean = false;
   private missionProgressTimer: NodeJS.Timeout | null = null;
+  private statusMonitorTimer: NodeJS.Timeout | null = null;
   
   private defaultRetryConfig: RetryConfig = {
     maxRetries: 3,
@@ -522,6 +523,12 @@ export class AutelDroneSDK {
       if (this.reconnectTimer) {
         clearTimeout(this.reconnectTimer);
         this.reconnectTimer = null;
+      }
+
+      // Clear status monitor timer
+      if (this.statusMonitorTimer) {
+        clearInterval(this.statusMonitorTimer);
+        this.statusMonitorTimer = null;
       }
 
       // Disconnect from SDK
@@ -736,8 +743,11 @@ export class AutelDroneSDK {
    * @param intervalMs - Update interval in milliseconds (default: 1000)
    */
   private startStatusMonitoring(intervalMs: number = 1000): void {
+    if (this.statusMonitorTimer) {
+      clearInterval(this.statusMonitorTimer);
+    }
     // In actual implementation, subscribe to Autel SDK status updates
-    setInterval(async () => {
+    this.statusMonitorTimer = setInterval(async () => {
       if (this.connected) {
         try {
           const status = await this.getStatus();
@@ -1205,9 +1215,8 @@ export class AutelDroneSDK {
       console.log('Stopping mission...');
       this.clearMissionProgressTimer();
       this.notifyMissionEvent({
-        type: 'mission-error',
-        mission: this.currentMission,
-        error: 'mission-stopped'
+        type: 'mission-stopped',
+        mission: this.currentMission
       });
       this.currentMission = null;
       this.missionPaused = false;
@@ -2132,6 +2141,7 @@ export class AutelDroneSDK {
     this.cameraCallbacks.clear();
     this.connectionCallbacks.clear();
     this.errorCallbacks.clear();
+    this.missionEventCallbacks.clear();
   }
 }
 

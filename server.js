@@ -179,6 +179,376 @@ function setupWebSocket(server) {
   });
 }
 
+// ─── WebRTC Signaling WebSocket (/ws/signal) ──────────────────────────────────
+// Pure relay — the server never touches media.  All video flows peer-to-peer
+// via DTLS-SRTP after the ICE handshake.
+//
+// In-memory state (lost on restart — rooms are transient by design).
+const signalingUserSockets = new Map();  // entraOid → { ws, displayName }
+const signalingRooms       = new Map();  // roomId   → Set<entraOid>
+const signalingTokens      = new Map();  // token    → { roomId, expiresAt }
+
+function cleanExpiredTokens() {
+  const now = Date.now();
+  for (const [token, { expiresAt }] of signalingTokens) {
+    if (now > expiresAt) signalingTokens.delete(token);
+  }
+}
+
+function broadcastOnlineUsers() {
+  const list = [...signalingUserSockets.entries()].map(([oid, { displayName }]) => ({ oid, displayName }));
+  const msg = JSON.stringify({ type: 'online_users', users: list });
+  for (const { ws } of signalingUserSockets.values()) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+}
+
+function relayTo(targetOid, payload) {
+  const target = signalingUserSockets.get(targetOid);
+  if (target && target.ws.readyState === 1) {
+    target.ws.send(JSON.stringify(payload));
+  }
+}
+
+function setupSignalingWebSocket(server) {
+  const sigWss = new WebSocketServer({ server, path: '/ws/signal' });
+
+  sigWss.on('connection', (ws) => {
+    let myOid = null;
+
+    ws.on('message', (raw) => {
+      let msg;
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+      switch (msg.type) {
+        case 'register': {
+          myOid = msg.entraOid;
+          if (!myOid) break;
+          signalingUserSockets.set(myOid, { ws, displayName: msg.displayName || myOid });
+          // Send the joining user the current online list
+          const list = [...signalingUserSockets.entries()].map(([oid, { displayName }]) => ({ oid, displayName }));
+          ws.send(JSON.stringify({ type: 'online_users', users: list }));
+          // Notify others
+          broadcastOnlineUsers();
+          break;
+        }
+
+        case 'create_room': {
+          if (!myOid) break;
+          cleanExpiredTokens();
+          const roomId = randomUUID();
+          const token  = randomUUID();
+          signalingRooms.set(roomId, new Set([myOid]));
+          signalingTokens.set(token, { roomId, expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+          ws.send(JSON.stringify({ type: 'room_created', roomId, token }));
+          break;
+        }
+
+        case 'join_room': {
+          if (!myOid) break;
+          let roomId = msg.roomId;
+          // Support invite token
+          if (!roomId && msg.token) {
+            const entry = signalingTokens.get(msg.token);
+            if (!entry || Date.now() > entry.expiresAt) {
+              ws.send(JSON.stringify({ type: 'error', code: 'token_expired' }));
+              break;
+            }
+            roomId = entry.roomId;
+          }
+          if (!roomId || !signalingRooms.has(roomId)) {
+            ws.send(JSON.stringify({ type: 'error', code: 'room_not_found' }));
+            break;
+          }
+          const room = signalingRooms.get(roomId);
+          if (room.size >= 6) {
+            ws.send(JSON.stringify({ type: 'error', code: 'room_full' }));
+            break;
+          }
+          // Notify existing members about the new peer
+          for (const peerOid of room) {
+            relayTo(peerOid, { type: 'peer_joined', peerOid: myOid, displayName: signalingUserSockets.get(myOid)?.displayName || myOid, roomId });
+          }
+          room.add(myOid);
+          // Tell the joiner who's already in the room
+          const peers = [...room].filter(o => o !== myOid).map(o => ({ oid: o, displayName: signalingUserSockets.get(o)?.displayName || o }));
+          ws.send(JSON.stringify({ type: 'room_joined', roomId, peers }));
+          break;
+        }
+
+        case 'leave_room': {
+          if (!myOid) break;
+          for (const [roomId, room] of signalingRooms) {
+            if (room.has(myOid)) {
+              room.delete(myOid);
+              for (const peerOid of room) {
+                relayTo(peerOid, { type: 'peer_left', peerOid: myOid });
+              }
+              if (room.size === 0) signalingRooms.delete(roomId);
+            }
+          }
+          break;
+        }
+
+        case 'call_invite': {
+          if (!myOid || !msg.targetOid || !msg.roomId) break;
+          relayTo(msg.targetOid, {
+            type: 'call_invite',
+            fromOid: myOid,
+            displayName: signalingUserSockets.get(myOid)?.displayName || myOid,
+            roomId: msg.roomId,
+            token: msg.token,
+          });
+          break;
+        }
+
+        case 'offer':
+        case 'answer':
+        case 'ice_candidate': {
+          if (!myOid || !msg.targetOid) break;
+          relayTo(msg.targetOid, { ...msg, fromOid: myOid });
+          break;
+        }
+      }
+    });
+
+    ws.on('close', () => {
+      if (!myOid) return;
+      signalingUserSockets.delete(myOid);
+      // Remove from all rooms
+      for (const [roomId, room] of signalingRooms) {
+        if (room.has(myOid)) {
+          room.delete(myOid);
+          for (const peerOid of room) {
+            relayTo(peerOid, { type: 'peer_left', peerOid: myOid });
+          }
+          if (room.size === 0) signalingRooms.delete(roomId);
+        }
+      }
+      broadcastOnlineUsers();
+    });
+
+    ws.on('error', () => ws.terminate());
+  });
+}
+
+// ─── Signaling REST helpers ────────────────────────────────────────────────────
+
+// GET /api/signal/users/search?q=<email or name>
+// Returns users from the DB whose email or name contains the query.
+app.get('/api/signal/users/search', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.json([]);
+  const db = getPrisma();
+  if (!db) return res.json([]);
+  try {
+    const users = await db.user.findMany({
+      where: {
+        OR: [
+          { email: { contains: q, mode: 'insensitive' } },
+          { name:  { contains: q, mode: 'insensitive' } },
+        ],
+      },
+      select: { id: true, name: true, email: true },
+      take: 20,
+    });
+    // Annotate with online status
+    const onlineSet = new Set(signalingUserSockets.keys());
+    res.json(users.map(u => ({ ...u, online: onlineSet.has(u.id) })));
+  } catch (err) {
+    console.error('User search error:', err);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// GET /api/signal/users/online
+app.get('/api/signal/users/online', (_, res) => {
+  const list = [...signalingUserSockets.entries()].map(([oid, { displayName }]) => ({ oid, displayName }));
+  res.json(list);
+});
+
+// POST /api/signal/rooms  →  { roomId, token }
+app.post('/api/signal/rooms', (req, res) => {
+  cleanExpiredTokens();
+  const roomId = randomUUID();
+  const token  = randomUUID();
+  signalingRooms.set(roomId, new Set());
+  signalingTokens.set(token, { roomId, expiresAt: Date.now() + 24 * 60 * 60 * 1000 });
+  res.json({ roomId, token });
+});
+
+// GET /api/signal/rooms/:token  →  { roomId } or 404
+app.get('/api/signal/rooms/:token', (req, res) => {
+  const entry = signalingTokens.get(req.params.token);
+  if (!entry || Date.now() > entry.expiresAt) return res.status(404).json({ error: 'Token not found or expired' });
+  res.json({ roomId: entry.roomId });
+});
+
+// ─── Mission WebSocket (/ws/mission) ─────────────────────────────────────────
+// Pushes telemetry, progress, alerts, and events to MissionDashboard clients.
+// Keeps media (raw frames) separate — those still flow through /ws/drone.
+const missionWsClients = new Set();
+
+function setupMissionWebSocket(server) {
+  const missionWss = new WebSocketServer({ server, path: '/ws/mission' });
+  missionWss.on('connection', (ws) => {
+    missionWsClients.add(ws);
+    ws.on('close', () => missionWsClients.delete(ws));
+    ws.on('error', () => missionWsClients.delete(ws));
+  });
+}
+
+function broadcastMission(type, data) {
+  if (missionWsClients.size === 0) return;
+  const msg = JSON.stringify({ type, data });
+  for (const ws of missionWsClients) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+}
+
+// ─── Autel EVO Lite 640T — connection + mission APIs ─────────────────────────
+
+// POST /api/drone/connect
+// Pings 192.168.0.1, starts RTSP→HLS for visual + thermal cameras.
+// Returns { connected, visualHls, thermalHls, reason? }
+app.post('/api/drone/connect', async (_req, res) => {
+  const DRONE_IP  = process.env.DRONE_IP || '192.168.0.1';
+  const VISUAL_RTSP  = `rtsp://${DRONE_IP}:554/livestream/streaming`;
+  const THERMAL_RTSP = `rtsp://${DRONE_IP}:554/livestream/thermalstreaming`;
+
+  // Quick reachability check (HTTP ping — drone exposes a simple HTTP server)
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    await fetch(`http://${DRONE_IP}`, { signal: controller.signal }).catch(() => {});
+    clearTimeout(timer);
+  } catch {
+    return res.json({
+      connected: false,
+      reason: `Drone not reachable at ${DRONE_IP}. Make sure your Mac is connected to the EVO-LITE-DEV WiFi network, then try again.`,
+    });
+  }
+
+  const visualResult  = startStream('evo-visual',  'EVO Visual',  VISUAL_RTSP);
+  const thermalResult = startStream('evo-thermal', 'EVO Thermal', THERMAL_RTSP);
+
+  res.json({
+    connected:  true,
+    visualHls:  visualResult.hlsUrl,
+    thermalHls: thermalResult.hlsUrl,
+  });
+});
+
+// GET /api/drone/preflight?lat=<lat>&lng=<lng>
+// Runs validatePreFlight via the SDK and returns a flat checklist.
+app.get('/api/drone/preflight', async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lng = parseFloat(req.query.lng);
+  const location = isNaN(lat) || isNaN(lng)
+    ? { latitude: 0, longitude: 0 }
+    : { latitude: lat, longitude: lng };
+
+  try {
+    const result = await drone.validatePreFlight({
+      location,
+      weatherApiUrl:  process.env.WEATHER_API_URL,
+      weatherApiKey:  process.env.WEATHER_API_KEY,
+      airspaceApiUrl: process.env.AIRSPACE_API_URL,
+      minBatteryPct:  Number(process.env.MIN_BATTERY_PCT || 20),
+      minSatellites:  Number(process.env.MIN_SATS || 6),
+    });
+    res.json({ ok: result.ok, reasons: result.reasons, details: result.details });
+  } catch (err) {
+    console.error('Preflight error:', err);
+    res.status(500).json({ ok: false, reasons: ['Preflight check failed'], details: {} });
+  }
+});
+
+// POST /api/drone/mission/launch
+// Launches an autonomous mission and starts broadcasting telemetry.
+// Body: { template: 'patrol'|'investigate'|'perimeter', lat, lng, altitude?, radius?, speed? }
+let missionTelemetryTimer = null;
+let missionEventUnsub = null;
+
+app.post('/api/drone/mission/launch', async (req, res) => {
+  const { template = 'investigate', lat, lng, altitude = 60, radius = 30, speed = 8 } = req.body || {};
+
+  if (typeof lat !== 'number' || typeof lng !== 'number') {
+    return res.status(400).json({ error: 'lat and lng (numbers) are required' });
+  }
+
+  const threatEvent = {
+    id: randomUUID(),
+    location: { latitude: lat, longitude: lng },
+    threatLevel: 5,
+  };
+
+  // Override the SDK's default mission plan inputs via env so the template is respected.
+  // The orchestrator always calls planMission internally; we patch its template via env.
+  process.env._MISSION_TEMPLATE  = template;
+  process.env._MISSION_ALTITUDE  = String(altitude);
+  process.env._MISSION_RADIUS    = String(radius);
+  process.env._MISSION_SPEED     = String(speed);
+
+  // Kick off the mission (non-blocking)
+  orchestrator.handleThreat(threatEvent).catch(err => {
+    console.error('[mission] error:', err);
+    broadcastMission('event', { type: 'error', message: String(err), timestamp: new Date().toISOString() });
+  });
+
+  // Start telemetry broadcast loop
+  if (missionTelemetryTimer) clearInterval(missionTelemetryTimer);
+  missionTelemetryTimer = setInterval(async () => {
+    try {
+      const status   = await drone.getStatus();
+      const progress = drone.getMissionProgress();
+
+      broadcastMission('telemetry', {
+        lat:              status.location?.latitude  ?? lat,
+        lng:              status.location?.longitude ?? lng,
+        altitude:         status.altitude  ?? altitude,
+        speed:            status.speed     ?? 0,
+        battery:          status.battery   ?? 100,
+        gpsFix:           status.gpsInfo?.fixType === 3 ? '3d' : status.gpsInfo?.fixType === 2 ? '2d' : 'none',
+        distanceFromHome: status.distanceFromHome ?? 0,
+      });
+
+      if (progress) {
+        broadcastMission('progress', {
+          missionName:    template,
+          currentWaypoint: progress.currentWaypointIndex  ?? 0,
+          totalWaypoints:  progress.totalWaypoints        ?? 1,
+          etaSeconds:      progress.estimatedTimeRemaining ?? null,
+          status:          orchestrator.getPhase(),
+        });
+      }
+
+      // Stop loop when mission is done
+      if (['complete', 'error'].includes(orchestrator.getPhase())) {
+        clearInterval(missionTelemetryTimer);
+        missionTelemetryTimer = null;
+      }
+    } catch (e) {
+      // non-fatal
+    }
+  }, 2000);
+
+  // Subscribe to drone events → broadcast as alerts / events
+  if (missionEventUnsub) missionEventUnsub();
+  missionEventUnsub = drone.onMissionEvent((evt) => {
+    if (evt.type === 'waypoint-reached') {
+      broadcastMission('event', { type: 'waypoint', message: `Reached waypoint ${evt.waypointIndex ?? ''}`, timestamp: new Date().toISOString() });
+    } else if (evt.type === 'mission-complete') {
+      broadcastMission('event', { type: 'complete', message: 'Mission complete', timestamp: new Date().toISOString() });
+      broadcastMission('progress', { status: 'complete', currentWaypoint: 1, totalWaypoints: 1 });
+    } else if (evt.type === 'mission-error') {
+      broadcastMission('event', { type: 'error', message: evt.error || 'Mission error', timestamp: new Date().toISOString() });
+    }
+  });
+
+  res.json({ status: 'launched', missionId: threatEvent.id });
+});
+
 function broadcastFrame(frame) {
   if (!wss || wsClients.size === 0) return;
   const payload = {
@@ -865,3 +1235,5 @@ const server = app.listen(port, () => {
 });
 
 setupWebSocket(server);
+setupSignalingWebSocket(server);
+setupMissionWebSocket(server);

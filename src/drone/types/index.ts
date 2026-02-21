@@ -3,7 +3,6 @@
 /**
  * Drone connection states
  */
-// eslint-disable-next-line no-unused-vars
 export enum DroneConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -14,7 +13,6 @@ export enum DroneConnectionState {
 /**
  * Flight modes supported by Autel EVO Lite
  */
-// eslint-disable-next-line no-unused-vars
 export enum FlightMode {
   MANUAL = 'manual',
   GPS = 'gps',
@@ -80,7 +78,6 @@ export interface DroneTelemetry {
 /**
  * Drone command types
  */
-// eslint-disable-next-line no-unused-vars
 export enum DroneCommandType {
   CONNECT = 'connect',
   DISCONNECT = 'disconnect',
@@ -128,7 +125,6 @@ export interface DroneCommandResponse {
 /**
  * Drone error types
  */
-// eslint-disable-next-line no-unused-vars
 export enum DroneErrorCode {
   CONNECTION_FAILED = 'connection_failed',
   CONNECTION_LOST = 'connection_lost',
@@ -176,7 +172,6 @@ export interface MissionWaypoint {
 /**
  * Waypoint action types
  */
-// eslint-disable-next-line no-unused-vars
 export enum WaypointActionType {
   TAKE_PHOTO = 'take_photo',
   START_RECORDING = 'start_recording',
@@ -222,7 +217,6 @@ export interface DroneMission {
 /**
  * Mission execution state
  */
-// eslint-disable-next-line no-unused-vars
 export enum MissionState {
   IDLE = 'idle',
   VALIDATING = 'validating',
@@ -286,7 +280,6 @@ export interface DroneConfig {
 /**
  * Drone event types
  */
-// eslint-disable-next-line no-unused-vars
 export enum DroneEventType {
   CONNECTION_CHANGED = 'connection_changed',
   TELEMETRY_UPDATE = 'telemetry_update',

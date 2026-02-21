@@ -5,7 +5,6 @@ import { FlightLogger } from '../logger/FlightLogger';
 /**
  * Recovery strategy types
  */
-// eslint-disable-next-line no-unused-vars
 export enum RecoveryStrategy {
   RETRY = 'retry',
   RETURN_HOME = 'return_home',

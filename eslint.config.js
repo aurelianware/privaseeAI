@@ -8,16 +8,26 @@ import security from 'eslint-plugin-security'
 export default [
   {
     ignores: [
-      'dist/**', 
-      'node_modules/**', 
-      '.eslintrc.cjs', 
+      'dist/**',
+      'node_modules/**',
+      '.eslintrc.cjs',
       'vite.config.ts',
       'vitest.config.ts',
       'tailwind.config.js',
       'postcss.config.js',
       'test-azure.js',
       'eslint.config.js',
-      'public/sw.ts'
+      'public/sw.ts',
+      // Server-side / tooling files not included in tsconfig
+      'server.js',
+      'simple-server.js',
+      'cli.js',
+      'prisma.config.ts',
+      'examples/**',
+      // JS utility files not included in tsconfig
+      'src/utils/auth0.js',
+      'src/utils/keyVault.js',
+      'src/utils/testAuthConfig.js'
     ]
   },
   {
@@ -105,6 +115,10 @@ export default [
       'security/detect-possible-timing-attacks': 'warn',
       'security/detect-pseudoRandomBytes': 'warn',
       
+      // Disable base JS rules that TypeScript already handles
+      'no-undef': 'off',
+      'no-unused-vars': 'off',
+
       // General rules
       'no-eval': 'error',
       'no-implied-eval': 'error',

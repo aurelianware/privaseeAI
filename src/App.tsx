@@ -1,11 +1,14 @@
 import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
 import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square } from 'lucide-react';
+import { useAccount, useMsal } from '@azure/msal-react';
 import CameraStream from './components/CameraStream';
 import DetectionOverlay from './components/DetectionOverlay';
 import EventsList from './components/EventsList';
 import SettingsPanel from './components/SettingsPanel';
 import MissionDashboard from './components/MissionDashboard';
+import MissionLauncher from './components/MissionLauncher';
 import HlsVideoPlayer from './components/HlsVideoPlayer';
+import CallPanel from './components/CallPanel';
 import { ProtectedRoute, UserProfileDropdown } from './components/Auth0Components';
 import syncQueueService from './utils/syncQueue';
 import localStorageService, { SecurityEvent as StoredSecurityEvent } from './utils/storage';
@@ -51,6 +54,15 @@ interface Settings {
 }
 
 function App() {
+  // Current user identity (for call panel)
+  const { accounts } = useMsal();
+  const msalAccount   = useAccount(accounts[0] ?? null);
+  const currentOid    = msalAccount?.localAccountId ?? '';
+  const currentName   = msalAccount?.name ?? msalAccount?.username ?? 'Unknown';
+
+  // Refs to HLS <video> elements keyed by stream ID, for captureStream() sharing
+  const hlsVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
+
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
@@ -67,6 +79,8 @@ function App() {
   const [databaseReady, setDatabaseReady] = useState(false);
   const { loadFromServer, saveToServer } = useUserSettings();
   const [droneConnected, setDroneConnected] = useState(false);
+  const [missionActive, setMissionActive] = useState(false);
+  const [droneStreams, setDroneStreams] = useState<{ visual: string | null; thermal: string | null }>({ visual: null, thermal: null });
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const manualRecorderRef = useRef<MediaRecorder | null>(null);
@@ -146,6 +160,15 @@ function App() {
     fetch('/api/drone/return-home', { method: 'POST' }).catch(console.error);
   const handleDroneEmergency = () =>
     fetch('/api/drone/emergency-land', { method: 'POST' }).catch(console.error);
+
+  const handleDroneConnect = useCallback(async () => {
+    const res = await fetch('/api/drone/connect', { method: 'POST' });
+    const data = await res.json();
+    if (data.connected) {
+      setDroneConnected(true);
+      setDroneStreams({ visual: data.visualHls ?? null, thermal: data.thermalHls ?? null });
+    }
+  }, []);
 
   // Initialize database first
   useEffect(() => {
@@ -762,7 +785,15 @@ function App() {
                       </div>
                     </div>
                     {s.hlsUrl ? (
-                      <HlsVideoPlayer src={s.hlsUrl} label={s.name} className="w-full" />
+                      <HlsVideoPlayer
+                        src={s.hlsUrl}
+                        label={s.name}
+                        className="w-full"
+                        ref={(el) => {
+                          if (el) hlsVideoRefs.current.set(s.id, el);
+                          else hlsVideoRefs.current.delete(s.id);
+                        }}
+                      />
                     ) : (
                       <div className="flex items-center justify-center h-36 text-gray-500 text-xs">
                         {s.active ? 'Buffering…' : 'Stream stopped'}
@@ -777,26 +808,23 @@ function App() {
         )}
 
         {activeTab === 'drone' && (
-          <div className="space-y-4">
-            {/* Connection status banner */}
-            <div className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium ${
-              droneConnected ? '' : ''
-            }`}
-              style={droneConnected
-                ? {background: 'rgba(0,255,136,0.1)', color: '#00ff88', border: '1px solid rgba(0,255,136,0.3)'}
-                : {background: '#0a0a0a', color: '#6b7280', border: '1px solid rgba(255,255,255,0.1)'}
-              }>
-              <Plane className="h-4 w-4" />
-              <span>{droneConnected ? 'Autel EVO Lite — Connected' : 'Drone not connected — connect your Mac to the drone WiFi and restart the server'}</span>
-            </div>
-            <MissionDashboard
-              missionId="autel-evo-lite"
-              websocketUrl={`ws://${window.location.host}/ws/drone`}
-              onPause={handleDronePause}
-              onReturnHome={handleDroneRTH}
-              onEmergencyLand={handleDroneEmergency}
-            />
-          </div>
+          missionActive
+            ? <MissionDashboard
+                missionId="autel-evo-lite"
+                websocketUrl={`ws://${window.location.host}/ws/mission`}
+                visualStreamUrl={droneStreams.visual}
+                thermalStreamUrl={droneStreams.thermal}
+                onPause={handleDronePause}
+                onReturnHome={handleDroneRTH}
+                onEmergencyLand={handleDroneEmergency}
+                onMissionEnd={() => setMissionActive(false)}
+              />
+            : <MissionLauncher
+                droneConnected={droneConnected}
+                droneStreams={droneStreams}
+                onConnect={handleDroneConnect}
+                onMissionLaunched={() => setMissionActive(true)}
+              />
         )}
 
         {activeTab === 'settings' && (
@@ -806,6 +834,17 @@ function App() {
           />
         )}
       </main>
+
+      {/* Floating call panel — always available regardless of active tab */}
+      {currentOid && (
+        <CallPanel
+          entraOid={currentOid}
+          displayName={currentName}
+          webcamStream={cameraStream}
+          hlsStreams={streams}
+          hlsVideoRefs={hlsVideoRefs}
+        />
+      )}
       </div>{/* end content wrapper */}
     </div>
   );

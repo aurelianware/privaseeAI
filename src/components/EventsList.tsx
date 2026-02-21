@@ -55,7 +55,7 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
   } | null>(null);
   const [expandedEvents, setExpandedEvents]   = useState<Set<string>>(new Set());
   const [mediaError,     setMediaError]        = useState<string | null>(null);
-  const [now,            setNow]               = useState(Date.now());
+  const [now,            setNow]               = useState(() => Date.now());
 
   // Live "time ago" ticker
   useEffect(() => {

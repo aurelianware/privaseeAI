@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import Hls from 'hls.js';
 
 interface HlsVideoPlayerProps {
@@ -10,10 +10,17 @@ interface HlsVideoPlayerProps {
 /**
  * HLS video player — uses native HLS on Safari, hls.js on Chrome/Firefox.
  * Suitable for the AGM Taipan thermal RTSP→HLS proxy stream.
+ *
+ * Forwards the underlying <video> element ref so callers can call
+ * videoEl.captureStream(30) to share the feed over WebRTC.
  */
-const HlsVideoPlayer: React.FC<HlsVideoPlayerProps> = ({ src, className = '', label }) => {
+const HlsVideoPlayer = forwardRef<HTMLVideoElement, HlsVideoPlayerProps>(
+  ({ src, className = '', label }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
+
+  // Expose the inner video element to the parent via ref
+  useImperativeHandle(ref, () => videoRef.current!, []);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -66,6 +73,8 @@ const HlsVideoPlayer: React.FC<HlsVideoPlayerProps> = ({ src, className = '', la
       aria-label={label ?? 'HLS video stream'}
     />
   );
-};
+});
+
+HlsVideoPlayer.displayName = 'HlsVideoPlayer';
 
 export default HlsVideoPlayer;

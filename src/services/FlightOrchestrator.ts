@@ -91,6 +91,10 @@ export class FlightOrchestrator {
     } catch (error) {
       await this.config.saveLog({ type: 'orchestrator_error', error: String(error) });
       this.setPhase('error');
+      if (this.monitorTimer) {
+        clearInterval(this.monitorTimer);
+        this.monitorTimer = null;
+      }
       await this.safeReturnHome();
     }
   }
@@ -154,23 +158,19 @@ export class FlightOrchestrator {
   }
 
   private async awaitMissionCompletionWithEvents(eventId: string): Promise<void> {
-    const unsubscribe = this.drone.onMissionEvent(async (evt: MissionEvent) => {
-      if (evt.type === 'waypoint-reached') {
-        await this.config.saveLog({ type: 'waypoint', eventId, waypoint: evt.waypointIndex });
-      }
-    });
-
     return new Promise((resolve, reject) => {
-      const off = this.drone.onMissionEvent((evt: MissionEvent) => {
-        if (evt.type === 'mission-complete') {
+      const off = this.drone.onMissionEvent(async (evt: MissionEvent) => {
+        if (evt.type === 'waypoint-reached') {
+          await this.config.saveLog({ type: 'waypoint', eventId, waypoint: evt.waypointIndex });
+        } else if (evt.type === 'mission-complete') {
           off();
-          unsubscribe();
           resolve();
-        }
-        if (evt.type === 'mission-error') {
+        } else if (evt.type === 'mission-error') {
           off();
-          unsubscribe();
           reject(new Error(evt.error || 'Mission error'));
+        } else if (evt.type === 'mission-stopped') {
+          off();
+          resolve();
         }
       });
     });
