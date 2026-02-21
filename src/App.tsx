@@ -253,33 +253,24 @@ function App() {
     saveSettings();
   }, [settings, settingsLoaded]);
 
-  // Load events from storage
   // Load events from storage and set up refresh
   useEffect(() => {
-    if (!databaseReady) return; // Wait for database initialization
+    if (!databaseReady) return;
 
     const loadEvents = async () => {
       try {
         const storedEvents = await localStorageService.getEvents({ limit: 100 });
         if (storedEvents.length > 0) {
-          console.log('📚 Loaded events from storage:', storedEvents.length);
-          // Debug: Check if blobs are present
-          storedEvents.forEach(event => {
-            console.log(`🔍 Event ${event.id}: imageBlob=${!!event.imageBlob}, videoBlob=${!!event.videoBlob}, imageSize=${event.imageBlob?.size}, videoSize=${event.videoBlob?.size}`);
-          });
           const convertedEvents = storedEvents.map(convertStoredEvent);
           setSecurityEvents(convertedEvents);
         }
       } catch (error) {
-        console.error('Failed to load events:', error);
+        // Swallow IDB transient errors silently
       }
     };
 
     loadEvents();
-    
-    // Refresh events every 5 seconds to pick up new ones
-    const refreshInterval = setInterval(loadEvents, 5000);
-    
+    const refreshInterval = setInterval(loadEvents, 10000);
     return () => clearInterval(refreshInterval);
   }, [databaseReady]);
 

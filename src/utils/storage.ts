@@ -66,6 +66,9 @@ class LocalStorageService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         this.db = request.result;
+        // Reopen automatically if browser closes the connection
+        this.db.onclose = () => { this.db = null; this.initialize().catch(() => {}); };
+        this.db.onversionchange = () => { this.db?.close(); this.db = null; };
         console.log('✅ Local storage initialized');
         resolve();
       };
