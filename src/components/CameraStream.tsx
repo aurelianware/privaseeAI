@@ -29,6 +29,7 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string>('');
+  const [requestingCamera, setRequestingCamera] = useState(false);
   const [currentDetections, setCurrentDetections] = useState<YOLODetection[]>([]);
   const [lastEventTime, setLastEventTime] = useState<number>(0);
   const [recordedEvents, setRecordedEvents] = useState<number>(0);
@@ -83,32 +84,47 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
     if (!isActive) return;
 
     const startCamera = async () => {
+      setRequestingCamera(true);
+      setError('');
       try {
-        // iPhone-optimized camera constraints
-        const constraints = {
-          video: {
-            width: { ideal: 1280, max: 1920 },
-            height: { ideal: 720, max: 1080 },
-            facingMode: { ideal: 'environment' }, // Back camera preferred
-            frameRate: { ideal: 30, max: 60 }
-          },
-          audio: false
-        };
+        // Try ideal constraints first, fall back to basic video if they fail
+        let mediaStream: MediaStream;
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            audio: false
+          });
+        } catch {
+          // Ultra-simple fallback
+          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
 
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         setStream(mediaStream);
+        setRequestingCamera(false);
         
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
+          await videoRef.current.play().catch(() => {});
           videoRef.current.onloadedmetadata = () => {
             startDetectionLoop();
           };
+          // If metadata already loaded, start immediately
+          if (videoRef.current.readyState >= 2) {
+            startDetectionLoop();
+          }
         }
         
         setError('');
-      } catch (err) {
-        console.error('Camera access denied:', err);
-        setError('Camera access denied. Please allow camera permissions and ensure you\'re using HTTPS.');
+      } catch (err: any) {
+        console.error('Camera error:', err);
+        setRequestingCamera(false);
+        if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+          setError('Camera permission denied. Click the camera icon in your browser address bar and allow access, then click Retry.');
+        } else if (err.name === 'NotFoundError') {
+          setError('No camera found on this device.');
+        } else {
+          setError(`Camera error: ${err.message || err.name}. Please try again.`);
+        }
       }
     };
 
@@ -643,10 +659,7 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
         <canvas
           ref={overlayCanvasRef}
           className="absolute top-0 left-0 w-full h-full pointer-events-none"
-          style={{ 
-            zIndex: 10,
-            backgroundColor: 'rgba(255, 0, 0, 0.1)' // Temporary red tint to debug visibility
-          }}
+          style={{ zIndex: 10 }}
         />
 
         {/* Hidden processing canvas */}
@@ -656,23 +669,36 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
       {/* Loading overlay */}
       {isModelLoading && (
         <div className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center z-20">
-          <div className="text-white text-center p-6 bg-gray-800 rounded-lg">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-lg font-semibold">Loading YOLO AI Model...</p>
-            <p className="text-sm opacity-75 mt-2">This may take a moment on first load</p>
+          <div className="text-white text-center p-6" style={{background:'#111', border:'1px solid rgba(0,255,255,0.2)', borderRadius:12}}>
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 mx-auto mb-4" style={{borderColor:'#00ffff'}}></div>
+            <p className="font-semibold" style={{color:'#00ffff'}}>Loading AI Model...</p>
+            <p className="text-sm opacity-60 mt-1">First load may take a moment</p>
+          </div>
+        </div>
+      )}
+
+      {/* Requesting camera overlay */}
+      {requestingCamera && (
+        <div className="absolute inset-0 flex items-center justify-center z-20" style={{background:'rgba(0,0,0,0.92)'}}>
+          <div className="text-center p-8">
+            <div className="animate-pulse text-6xl mb-4">📷</div>
+            <p className="text-lg font-bold mb-2" style={{color:'#00ffff'}}>Requesting Camera Access</p>
+            <p className="text-sm" style={{color:'rgba(255,255,255,0.5)'}}>Check your browser for a permission prompt</p>
           </div>
         </div>
       )}
 
       {/* Error overlay */}
       {error && (
-        <div className="absolute inset-0 bg-red-500 bg-opacity-90 flex items-center justify-center z-20">
-          <div className="text-white text-center p-6 max-w-md">
-            <p className="text-lg font-semibold mb-2">⚠️ Error</p>
-            <p className="mb-4">{error}</p>
+        <div className="absolute inset-0 flex items-center justify-center z-20" style={{background:'rgba(0,0,0,0.95)'}}>
+          <div className="text-center p-6 max-w-sm mx-4" style={{background:'#1a0000', border:'1px solid #ff4444', borderRadius:12}}>
+            <p className="text-4xl mb-3">⚠️</p>
+            <p className="font-bold mb-2" style={{color:'#ff4444'}}>Camera Error</p>
+            <p className="text-sm mb-5" style={{color:'rgba(255,255,255,0.7)'}}>{error}</p>
             <button
-              onClick={() => window.location.reload()}
-              className="bg-white text-red-500 px-4 py-2 rounded font-semibold hover:bg-gray-100"
+              onClick={() => { setError(''); window.location.reload(); }}
+              className="px-6 py-2 rounded-lg font-semibold"
+              style={{background:'#00ffff', color:'#000'}}
             >
               Retry
             </button>
