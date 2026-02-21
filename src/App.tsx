@@ -427,7 +427,7 @@ function App() {
           <div className="space-y-6">
             {/* Camera View */}
             <div className="rounded-lg overflow-hidden" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
-              <div className="aspect-video relative bg-black">
+              <div className="relative bg-black w-full" style={{height: '58vh'}}>
                 <CameraStream
                   onDetection={handleDetection}
                   isActive={isMonitoring}
@@ -441,15 +441,18 @@ function App() {
                 {/* Inactive placeholder — shown when not monitoring */}
                 {!isMonitoring && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{background: 'rgba(0,0,0,0.97)'}}>
-                    <Shield className="h-16 w-16 mb-4" style={{color: 'rgba(0,255,255,0.3)'}}/>
-                    <p className="text-lg font-bold mb-1" style={{color: '#00ffff'}}>The Sentinel</p>
-                    <p className="text-sm mb-6" style={{color: 'rgba(255,255,255,0.4)'}}>Live monitoring is inactive</p>
+                    <Shield className="h-20 w-20 mb-6" style={{color: 'rgba(0,255,255,0.3)'}}/>
+                    <p className="text-2xl font-bold mb-2" style={{color: '#00ffff'}}>The Sentinel</p>
+                    <p className="text-sm mb-2" style={{color: 'rgba(255,255,255,0.4)'}}>Live monitoring is inactive</p>
+                    <p className="text-xs mb-8 text-center max-w-xs" style={{color: 'rgba(255,255,255,0.25)'}}>
+                      Your device camera will activate. Allow permission when prompted.
+                    </p>
                     <button
                       onClick={toggleMonitoring}
-                      className="px-8 py-3 rounded-lg font-semibold text-lg transition-all flex items-center space-x-2"
-                      style={{background: '#00ffff', color: '#000000', boxShadow: '0 0 20px rgba(0,255,255,0.4)'}}
+                      className="px-10 py-4 rounded-xl font-bold text-xl transition-all flex items-center space-x-3 hover:scale-105"
+                      style={{background: '#00ffff', color: '#000000', boxShadow: '0 0 30px rgba(0,255,255,0.5)'}}
                     >
-                      <Camera className="h-5 w-5" />
+                      <Camera className="h-6 w-6" />
                       <span>Activate Sentinel</span>
                     </button>
                   </div>
@@ -458,42 +461,40 @@ function App() {
 
               {/* Controls */}
               <div className="p-4" style={{borderTop: '1px solid rgba(0,255,255,0.1)'}}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <button
-                      onClick={toggleMonitoring}
-                      className="px-6 py-2 rounded-lg font-medium transition-all"
-                      style={isMonitoring
-                        ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 12px rgba(255,68,68,0.4)'}
-                        : {background: '#00ffff', color: '#000', boxShadow: '0 0 12px rgba(0,255,255,0.4)'}
-                      }
-                    >
-                      {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
-                    </button>
+                <div className="flex flex-wrap items-center gap-4">
+                  <button
+                    onClick={toggleMonitoring}
+                    className="px-6 py-2 rounded-lg font-semibold transition-all flex items-center space-x-2"
+                    style={isMonitoring
+                      ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 12px rgba(255,68,68,0.4)'}
+                      : {background: '#00ffff', color: '#000', boxShadow: '0 0 12px rgba(0,255,255,0.4)'}
+                    }
+                  >
+                    <Camera className="h-4 w-4" />
+                    <span>{isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}</span>
+                  </button>
 
-                    {/* Detection stats */}
-                    {detectedObjects.length > 0 && (
-                      <div className="text-sm text-gray-400">
-                        {detectedObjects.length} objects detected
-                      </div>
-                    )}
-                  </div>
+                  {detectedObjects.length > 0 && (
+                    <div className="text-sm" style={{color: '#00ffff'}}>
+                      {detectedObjects.length} objects detected
+                    </div>
+                  )}
 
-                  {/* Quick settings */}
-                  <div className="flex items-center space-x-2 text-sm">
-                    <label className="flex items-center space-x-2">
-                      <input
-                        type="checkbox"
-                        checked={settings.humanDetection}
-                        onChange={(e) => setSettings(prev => ({
-                          ...prev,
-                          humanDetection: e.target.checked
-                        }))}
-                        className="rounded"
-                      />
-                      <span>Human Detection</span>
-                    </label>
-                  </div>
+                  <div className="flex-1" />
+
+                  <label className="flex items-center space-x-2 text-sm cursor-pointer" style={{color: 'rgba(255,255,255,0.6)'}}>
+                    <input
+                      type="checkbox"
+                      checked={settings.humanDetection}
+                      onChange={(e) => setSettings(prev => ({
+                        ...prev,
+                        humanDetection: e.target.checked
+                      }))}
+                      className="rounded"
+                      style={{accentColor: '#00ffff'}}
+                    />
+                    <span>Human Detection</span>
+                  </label>
                 </div>
               </div>
             </div>
