@@ -160,3 +160,28 @@ model Event {
   @@index([userId, timestamp])
   @@index([synced, priority])
 }
+
+// Per-user persisted settings (survives logout / new device)
+// Sensitive values (SAS token) are AES-256-GCM encrypted server-side.
+model UserSettings {
+  id                   String   @id @default(cuid())
+  // Keyed by Microsoft Entra Object ID (stable across logins)
+  entraOid             String   @unique
+  email                String?
+
+  // Azure Blob Storage config
+  azureAccountName     String?
+  azureContainerName   String?
+  // Encrypted SAS token: base64(iv:authTag:ciphertext)
+  encryptedSasToken    String?
+
+  // Detection preferences
+  confidenceThreshold  Float    @default(0.5)
+  humanDetection       Boolean  @default(true)
+  motionDetection      Boolean  @default(true)
+  notifications        Boolean  @default(true)
+  cloudSync            Boolean  @default(false)
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}

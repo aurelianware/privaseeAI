@@ -59,7 +59,15 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         console.log('✅ COCO-SSD model loaded successfully');
 
         setIsModelLoading(false);
-        
+
+        // Camera may have already connected while the model was loading.
+        // The loadedmetadata / canplay handlers are { once: true } and already
+        // fired, so we must explicitly kick off the detection loop here.
+        if (videoRef.current && videoRef.current.readyState >= 1 && !detectionLoopRef.current) {
+          console.log('▶️ Model loaded after camera connected — starting detection loop now');
+          startDetectionLoop();
+        }
+
       } catch (err) {
         console.error('Failed to initialize YOLO:', err);
         setError('Failed to load AI model. Check console for details.');
@@ -82,11 +90,27 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
 
   // Initialize camera stream
   useEffect(() => {
+    console.log('🎥 CameraStream effect — isActive:', isActive, '| mediaDevices:', !!navigator.mediaDevices, '| protocol:', location.protocol);
     if (!isActive) return;
+
+    // Use a local ref so the cleanup always has the actual stream,
+    // avoiding the stale-closure bug where `stream` state is null at registration time.
+    let localStream: MediaStream | null = null;
 
     const startCamera = async () => {
       setRequestingCamera(true);
       setError('');
+
+      // Guard: getUserMedia requires a secure context (https or localhost)
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        const msg = `Camera API unavailable. Page must be served over HTTPS or localhost (current: ${location.protocol}//${location.host})`;
+        console.error('❌', msg);
+        setError(msg);
+        setRequestingCamera(false);
+        return;
+      }
+
+      console.log('📷 Calling getUserMedia...');
       try {
         // Try ideal constraints first, fall back to basic video if they fail
         let mediaStream: MediaStream;
@@ -95,28 +119,50 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
             video: { width: { ideal: 1280 }, height: { ideal: 720 } },
             audio: false
           });
-        } catch {
+        } catch (e1) {
+          console.warn('⚠️ Ideal constraints failed, trying fallback:', e1);
           // Ultra-simple fallback
           mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
 
+        localStream = mediaStream;
         console.log('📷 Camera started, tracks:', mediaStream.getTracks().map(t => t.label));
         setStream(mediaStream);
         setRequestingCamera(false);
         onStreamReady?.(mediaStream);
         
         if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          videoRef.current.play().catch((e) => {
-            console.error('▶️ video.play() failed:', e);
-          });
-          videoRef.current.onloadedmetadata = () => {
-            console.log('📐 Video metadata loaded:', videoRef.current!.videoWidth, 'x', videoRef.current!.videoHeight);
+          const video = videoRef.current;
+
+          // Attach event handlers BEFORE setting srcObject so no events are missed
+          const onMetadata = () => {
+            console.log('📐 Video metadata loaded:', video.videoWidth, 'x', video.videoHeight);
             startDetectionLoop();
           };
-          // If metadata already loaded, start immediately
-          if (videoRef.current.readyState >= 2) {
-            console.log('📐 Video already ready (readyState', videoRef.current.readyState, ')');
+          const onCanPlay = () => {
+            // Fallback: if readyState advances without firing loadedmetadata
+            if (video.videoWidth > 0 && !detectionLoopRef.current) {
+              console.log('▶️ canplay fired - starting detection loop');
+              startDetectionLoop();
+            }
+          };
+
+          video.addEventListener('loadedmetadata', onMetadata, { once: true });
+          video.addEventListener('canplay', onCanPlay, { once: true });
+
+          video.srcObject = mediaStream;
+
+          // For muted autoplay the browser should handle it, but call play() explicitly as well
+          video.play().catch((e) => {
+            console.error('▶️ video.play() failed:', e);
+            setError('Video playback was blocked by the browser. Click Retry to start the camera stream.');
+          });
+
+          // If metadata already loaded (stream reuse edge-case), start immediately
+          if (video.readyState >= 2) {
+            console.log('📐 Video already ready (readyState', video.readyState, ')');
+            video.removeEventListener('loadedmetadata', onMetadata);
+            video.removeEventListener('canplay', onCanPlay);
             startDetectionLoop();
           }
         }
@@ -138,14 +184,20 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
     startCamera();
 
     return () => {
-      // Cleanup camera stream
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      // Use localStream (not setState stream) to avoid stale-closure — `stream`
+      // state is still null at the time this cleanup was registered.
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
         setStream(null);
         onStreamReady?.(null);
       }
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
       if (detectionLoopRef.current) {
         cancelAnimationFrame(detectionLoopRef.current);
+        detectionLoopRef.current = undefined;
       }
     };
   }, [isActive]);

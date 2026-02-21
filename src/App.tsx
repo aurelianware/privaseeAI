@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
-import { Camera, Shield, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square } from 'lucide-react';
+import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square } from 'lucide-react';
 import CameraStream from './components/CameraStream';
 import DetectionOverlay from './components/DetectionOverlay';
 import EventsList from './components/EventsList';
@@ -9,6 +9,7 @@ import HlsVideoPlayer from './components/HlsVideoPlayer';
 import { ProtectedRoute, UserProfileDropdown } from './components/Auth0Components';
 import syncQueueService from './utils/syncQueue';
 import localStorageService, { SecurityEvent as StoredSecurityEvent } from './utils/storage';
+import { useUserSettings } from './hooks/useUserSettings';
 
 interface DetectedObject {
   class: string;
@@ -50,7 +51,7 @@ interface Settings {
 }
 
 function App() {
-  const [isMonitoring, setIsMonitoring] = useState(false);
+  const [isMonitoring, setIsMonitoring] = useState(true);
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
   const [activeTab, setActiveTab] = useState<'live' | 'events' | 'cameras' | 'drone' | 'settings'>('live');
@@ -64,6 +65,7 @@ function App() {
   });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [databaseReady, setDatabaseReady] = useState(false);
+  const { loadFromServer, saveToServer } = useUserSettings();
   const [droneConnected, setDroneConnected] = useState(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [isRecording, setIsRecording] = useState(false);
@@ -212,16 +214,42 @@ function App() {
     const loadSettings = async () => {
       try {
         const storedSettings = await localStorageService.getSettings();
+
+        // Seed Azure config from env vars if not already stored
+        const envAzureAccount = import.meta.env.VITE_AZURE_STORAGE_ACCOUNT;
+        const envAzureContainer = import.meta.env.VITE_AZURE_STORAGE_CONTAINER;
+        const envAzureSasToken = import.meta.env.VITE_AZURE_SAS_TOKEN;
+        const envAzureConfig = (envAzureAccount && envAzureContainer && envAzureSasToken)
+          ? { accountName: envAzureAccount, containerName: envAzureContainer, sasToken: envAzureSasToken }
+          : undefined;
+
+        // Build base settings from IndexedDB / env vars
+        const baseAzureConfig = storedSettings?.azureConfig ?? envAzureConfig;
         if (storedSettings) {
-          console.log('📋 Loaded settings from storage:', storedSettings);
           setSettings({
             confidenceThreshold: storedSettings.alertThreshold,
-            humanDetection: true, // This maps to detection being enabled
-            motionDetection: true, // This maps to detection being enabled
-            notifications: true, // We can add this to AppSettings later
+            humanDetection: true,
+            motionDetection: true,
+            notifications: true,
             cloudSync: storedSettings.cloudSync,
-            azureConfig: storedSettings.azureConfig
+            azureConfig: baseAzureConfig
           });
+        } else if (envAzureConfig) {
+          setSettings(prev => ({ ...prev, cloudSync: true, azureConfig: envAzureConfig }));
+        }
+
+        // Override with server-side settings (source of truth for multi-device)
+        const remote = await loadFromServer();
+        if (remote) {
+          console.log('☁️ Loaded settings from server (multi-tenant)');
+          setSettings(prev => ({
+            ...prev,
+            ...(remote.confidenceThreshold !== undefined && { confidenceThreshold: remote.confidenceThreshold }),
+            ...(remote.cloudSync !== undefined && { cloudSync: remote.cloudSync }),
+            azureConfig: (remote.azureAccountName && remote.azureContainerName && remote.sasToken)
+              ? { accountName: remote.azureAccountName, containerName: remote.azureContainerName, sasToken: remote.sasToken }
+              : prev.azureConfig
+          }));
         }
       } catch (error) {
         console.error('Failed to load settings:', error);
@@ -241,14 +269,24 @@ function App() {
       try {
         await localStorageService.saveSettings({
           alertThreshold: settings.confidenceThreshold,
-          recordingEnabled: true, // We can make this configurable later
+          recordingEnabled: true,
           cloudSync: settings.cloudSync,
-          syncOnlyOnWifi: false, // We can make this configurable later
-          maxLocalStorageMB: 100, // Default limit
-          retentionDays: 30, // Default retention
+          syncOnlyOnWifi: false,
+          maxLocalStorageMB: 100,
+          retentionDays: 30,
           azureConfig: settings.azureConfig
         });
-        console.log('💾 Settings saved to storage');
+        console.log('💾 Settings saved to local storage');
+
+        // Also persist to server so any future device/login gets the same settings
+        const saved = await saveToServer({
+          confidenceThreshold: settings.confidenceThreshold,
+          cloudSync: settings.cloudSync,
+          azureAccountName: settings.azureConfig?.accountName,
+          azureContainerName: settings.azureConfig?.containerName,
+          sasToken: settings.azureConfig?.sasToken,
+        });
+        if (saved) console.log('☁️ Settings synced to server');
       } catch (error) {
         console.error('Failed to save settings:', error);
       }
@@ -373,33 +411,85 @@ function App() {
   }, [securityEvents, settings.notifications]);
 
   return (
-    <div className="min-h-screen bg-black text-white">
+    <div className="min-h-screen text-white" style={{
+      background: '#000',
+      backgroundImage: 'url(/privaseeai-kubrick.png)',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center 35%',
+      backgroundAttachment: 'fixed',
+      position: 'relative',
+    }}>
+      {/* Kubrick overlay — heavy vignette, lets the cold-war teal and grain breathe */}
+      <div style={{
+        position: 'fixed', inset: 0,
+        background: 'linear-gradient(180deg, rgba(0,0,0,0.72) 0%, rgba(0,4,8,0.80) 50%, rgba(0,0,0,0.93) 100%)',
+        pointerEvents: 'none',
+        zIndex: 0,
+      }} />
+      {/* All content sits above the overlay */}
+      <div style={{position: 'relative', zIndex: 1}}>
       {/* Header */}
-      <header className="bg-black p-4" style={{borderBottom: '1px solid rgba(0,255,255,0.3)', boxShadow: '0 2px 12px rgba(0,255,255,0.08)'}}>
+      <header style={{background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(20px) saturate(180%)', WebkitBackdropFilter: 'blur(20px) saturate(180%)', borderBottom: '1px solid rgba(0,200,220,0.25)', boxShadow: '0 1px 0 rgba(0,255,255,0.08), 0 4px 32px rgba(0,0,0,0.6)', padding: '12px 16px'}}>
         <div className="flex items-center justify-between max-w-6xl mx-auto">
-          <div className="flex items-center space-x-3">
-            <Shield className="h-8 w-8" style={{color: '#00ffff'}} />
-            <div>
-              <h1 className="text-xl font-bold" style={{color: '#00ffff'}}>privaseeAI</h1>
-              <p className="text-xs" style={{color: 'rgba(0,255,255,0.5)'}}>The Sentinel</p>
+          {/* Logo — animated video on dark header, screened so black disappears */}
+          <div className="flex items-center gap-3" style={{minWidth: 0}}>
+            <div style={{flexShrink: 0, position: 'relative'}}>
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                poster="/logo/privaseeai-logo-poster.jpg"
+                style={{
+                  height: 48,
+                  width: 'auto',
+                  display: 'block',
+                  mixBlendMode: 'screen',
+                  filter: 'drop-shadow(0 0 10px rgba(0,255,255,0.55)) drop-shadow(0 0 22px rgba(0,255,136,0.25))',
+                  borderRadius: 4,
+                }}
+              >
+                <source src="/logo/privaseeai-logo.webm" type="video/webm" />
+                <source src="/logo/privaseeai-logo.mp4"  type="video/mp4" />
+              </video>
+            </div>
+            <div style={{lineHeight: 1}}>
+              <p style={{
+                margin: 0,
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: '0.18em',
+                textTransform: 'uppercase',
+                color: 'rgba(0,255,255,0.45)',
+                fontFamily: "'Segoe UI', sans-serif",
+              }}>The Sentinel</p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-4">
-            {/* Status indicators */}
-            <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm ${
-              isMonitoring ? 'bg-green-900 text-green-300 border border-green-500' : 'bg-black text-gray-400 border border-gray-700'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${
-                isMonitoring ? 'bg-white animate-pulse' : 'bg-gray-400'
-              }`} />
-              <span>{isMonitoring ? 'Monitoring' : 'Offline'}</span>
+          <div style={{display: 'flex', alignItems: 'center', gap: 12}}>
+            {/* Status pill */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '5px 14px', borderRadius: 999, fontSize: 12,
+              whiteSpace: 'nowrap', fontFamily: "'Segoe UI', sans-serif",
+              letterSpacing: '0.06em', fontWeight: 600,
+              ...(isMonitoring
+                ? {background: 'rgba(0,255,136,0.1)', color: '#00ff88', border: '1px solid rgba(0,255,136,0.35)'}
+                : {background: 'rgba(0,0,0,0.4)', color: 'rgba(180,180,180,0.7)', border: '1px solid rgba(255,255,255,0.12)'})
+            }}>
+              <span style={{
+                width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
+                background: isMonitoring ? '#00ff88' : '#555',
+                boxShadow: isMonitoring ? '0 0 6px #00ff88' : 'none',
+                animation: isMonitoring ? 'pulse 1.5s infinite' : 'none',
+              }} />
+              {isMonitoring ? 'Live' : 'Offline'}
             </div>
 
             {/* Event count */}
             {securityEvents.length > 0 && (
-              <div className="flex items-center space-x-1 text-sm text-yellow-400">
-                <AlertTriangle className="h-4 w-4" />
+              <div style={{display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'rgba(255,180,60,0.9)', whiteSpace: 'nowrap'}}>
+                <AlertTriangle size={13} />
                 <span>{securityEvents.length}</span>
               </div>
             )}
@@ -411,9 +501,9 @@ function App() {
       </header>
 
       {/* Navigation Tabs */}
-      <nav className="bg-[#0a0a0a]" style={{borderBottom: '1px solid rgba(0,255,255,0.2)'}}>
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="flex space-x-6 overflow-x-auto">
+      <nav style={{background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: '1px solid rgba(0,200,220,0.15)'}}>
+        <div style={{maxWidth: 1152, margin: '0 auto', padding: '0 16px'}}>
+          <div style={{display: 'flex', gap: 0, overflowX: 'auto', scrollbarWidth: 'none'}}>
             {[
               { id: 'live', label: 'Live View', icon: Camera },
               { id: 'events', label: 'Events', icon: AlertTriangle },
@@ -427,14 +517,22 @@ function App() {
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className="flex items-center space-x-2 py-4 border-b-2 transition-all whitespace-nowrap text-sm"
-                  style={isActive
-                    ? { borderColor: '#00ffff', color: '#00ffff', textShadow: '0 0 8px rgba(0,255,255,0.5)' }
-                    : { borderColor: 'transparent', color: '#9ca3af' }
-                  }
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 7,
+                    padding: '14px 20px', whiteSpace: 'nowrap',
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: 13, fontWeight: isActive ? 700 : 400,
+                    letterSpacing: '0.05em',
+                    borderBottom: isActive ? '2px solid rgba(0,220,255,0.9)' : '2px solid transparent',
+                    color: isActive ? 'rgba(0,220,255,0.95)' : 'rgba(160,170,180,0.7)',
+                    textShadow: isActive ? '0 0 10px rgba(0,220,255,0.35)' : 'none',
+                    transition: 'color 0.15s, border-color 0.15s',
+                    fontFamily: "'Segoe UI', sans-serif",
+                    flexShrink: 0,
+                  }}
                 >
-                  <Icon className="h-4 w-4" />
-                  <span>{tab.label}</span>
+                  <Icon size={14} />
+                  {tab.label}
                 </button>
               );
             })}
@@ -447,11 +545,11 @@ function App() {
         {activeTab === 'live' && (
           <div className="space-y-6">
             {/* Camera View */}
-            <div className="rounded-lg overflow-hidden" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
+            <div className="rounded-lg overflow-hidden" style={{background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(0,200,220,0.18)'}}>
               <div className="relative bg-black w-full" style={{height: '58vh'}}>
                 <CameraStream
                   onDetection={handleDetection}
-                  isActive={isMonitoring}
+                  isActive={true}
                   onStreamReady={setCameraStream}
                 />
                 
@@ -460,77 +558,107 @@ function App() {
                   <DetectionOverlay objects={detectedObjects} />
                 )}
 
-                {/* Inactive placeholder — shown when not monitoring */}
+                {/* Paused overlay — brand image fills the feed area */}
                 {!isMonitoring && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center" style={{background: 'rgba(0,0,0,0.97)', zIndex: 100}}>
-                    <Shield className="h-20 w-20 mb-6" style={{color: 'rgba(0,255,255,0.3)'}}/>
-                    <p className="text-2xl font-bold mb-2" style={{color: '#00ffff'}}>The Sentinel</p>
-                    <p className="text-sm mb-2" style={{color: 'rgba(255,255,255,0.4)'}}>Live monitoring is inactive</p>
-                    <p className="text-xs mb-8 text-center max-w-xs" style={{color: 'rgba(255,255,255,0.25)'}}>
-                      Your device camera will activate. Allow permission when prompted.
-                    </p>
-                    <button
-                      onClick={toggleMonitoring}
-                      className="px-10 py-4 rounded-xl font-bold text-xl transition-all flex items-center space-x-3 hover:scale-105"
-                      style={{background: '#00ffff', color: '#000000', boxShadow: '0 0 30px rgba(0,255,255,0.5)'}}
-                    >
-                      <Camera className="h-6 w-6" />
-                      <span>Activate Sentinel</span>
-                    </button>
+                  <div className="absolute inset-0 flex flex-col items-end justify-end" style={{
+                    backgroundImage: 'url(/privaseeai-brand.png)',
+                    backgroundSize: 'cover',
+                    backgroundPosition: 'center 30%',
+                    zIndex: 50,
+                  }}>
+                    {/* Gradient vignette over image */}
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      background: 'linear-gradient(135deg, rgba(0,0,0,0.15) 0%, rgba(0,0,0,0.55) 100%)',
+                    }} />
+                    {/* Bottom-right control pill */}
+                    <div style={{
+                      position: 'relative', zIndex: 1,
+                      padding: '20px 24px',
+                      display: 'flex', alignItems: 'center', gap: 16,
+                    }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, letterSpacing: '0.18em',
+                        textTransform: 'uppercase', color: 'rgba(255,255,255,0.5)',
+                        fontFamily: "'Segoe UI', sans-serif",
+                      }}>Monitoring Paused</span>
+                      <button
+                        onClick={toggleMonitoring}
+                        className="flex items-center space-x-2 hover:scale-105 transition-transform"
+                        style={{
+                          background: '#00ffff', color: '#000',
+                          border: 'none', borderRadius: 8,
+                          padding: '8px 20px', fontWeight: 700, fontSize: 14,
+                          boxShadow: '0 0 24px rgba(0,255,255,0.6), 0 0 60px rgba(0,255,255,0.2)',
+                          cursor: 'pointer', letterSpacing: '0.04em',
+                          fontFamily: "'Segoe UI', sans-serif",
+                        }}
+                      >
+                        <Camera className="h-4 w-4" style={{marginRight: 6}} />
+                        Resume
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
               {/* Controls */}
-              <div className="p-4" style={{borderTop: '1px solid rgba(0,255,255,0.1)'}}>
-                <div className="flex flex-wrap items-center gap-4">
+              <div style={{borderTop: '1px solid rgba(0,200,220,0.12)', background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', padding: '12px 16px'}}>
+                {/* Row 1: primary action buttons */}
+                <div style={{display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap'}}>
                   <button
                     onClick={toggleMonitoring}
-                    className="px-6 py-2 rounded-lg font-semibold transition-all flex items-center space-x-2"
-                    style={isMonitoring
-                      ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 12px rgba(255,68,68,0.4)'}
-                      : {background: '#00ffff', color: '#000', boxShadow: '0 0 12px rgba(0,255,255,0.4)'}
-                    }
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      padding: '9px 20px', borderRadius: 8, border: 'none',
+                      fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap', cursor: 'pointer',
+                      letterSpacing: '0.04em', fontFamily: "'Segoe UI', sans-serif",
+                      transition: 'box-shadow 0.2s',
+                      ...(isMonitoring
+                        ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 14px rgba(255,68,68,0.45)'}
+                        : {background: '#00ffff', color: '#000', boxShadow: '0 0 14px rgba(0,255,255,0.45)'})
+                    }}
                   >
-                    <Camera className="h-4 w-4" />
-                    <span>{isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}</span>
+                    <Camera size={15} />
+                    {isMonitoring ? 'Stop' : 'Start'}
                   </button>
 
                   {isMonitoring && cameraStream && (
                     <button
                       onClick={toggleRecording}
-                      className="px-4 py-2 rounded-lg font-semibold transition-all flex items-center space-x-2"
-                      style={isRecording
-                        ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 12px rgba(255,68,68,0.5)'}
-                        : {background: 'transparent', color: '#ff4444', border: '1px solid #ff4444'}
-                      }
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '9px 18px', borderRadius: 8, cursor: 'pointer',
+                        fontWeight: 700, fontSize: 13, whiteSpace: 'nowrap',
+                        letterSpacing: '0.04em', fontFamily: "'Segoe UI', sans-serif",
+                        transition: 'box-shadow 0.2s',
+                        ...(isRecording
+                          ? {background: '#ff4444', color: '#fff', border: 'none', boxShadow: '0 0 14px rgba(255,68,68,0.5)'}
+                          : {background: 'transparent', color: '#ff4444', border: '1px solid rgba(255,68,68,0.6)'})
+                      }}
                     >
-                      {isRecording ? <Square className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
-                      <span>{isRecording ? 'Stop Rec' : 'Record'}</span>
-                      {isRecording && <span className="animate-pulse ml-1">●</span>}
+                      {isRecording ? <Square size={13} /> : <Circle size={13} />}
+                      {isRecording ? 'Stop Rec' : 'Record'}
+                      {isRecording && <span style={{color: '#ff4444', animation: 'pulse 1s infinite'}}>●</span>}
                     </button>
                   )}
 
                   {detectedObjects.length > 0 && (
-                    <div className="text-sm" style={{color: '#00ffff'}}>
-                      {detectedObjects.length} objects detected
-                    </div>
+                    <span style={{fontSize: 12, color: 'rgba(0,220,255,0.8)', whiteSpace: 'nowrap', letterSpacing: '0.06em'}}>
+                      {detectedObjects.length} detected
+                    </span>
                   )}
 
-                  <div className="flex-1" />
+                  <div style={{flex: 1}} />
 
-                  <label className="flex items-center space-x-2 text-sm cursor-pointer" style={{color: 'rgba(255,255,255,0.6)'}}>
+                  <label style={{display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', color: 'rgba(200,210,220,0.7)', whiteSpace: 'nowrap', letterSpacing: '0.05em'}}>
                     <input
                       type="checkbox"
                       checked={settings.humanDetection}
-                      onChange={(e) => setSettings(prev => ({
-                        ...prev,
-                        humanDetection: e.target.checked
-                      }))}
-                      className="rounded"
-                      style={{accentColor: '#00ffff'}}
+                      onChange={(e) => setSettings(prev => ({...prev, humanDetection: e.target.checked}))}
+                      style={{accentColor: '#00ffff', width: 14, height: 14}}
                     />
-                    <span>Human Detection</span>
+                    Human Detection
                   </label>
                 </div>
               </div>
@@ -538,7 +666,7 @@ function App() {
 
             {/* Recent Events Preview */}
             {securityEvents.length > 0 && (
-              <div className="rounded-lg p-4" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
+              <div className="rounded-lg p-4" style={{background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(0,200,220,0.15)'}}>
                 <h3 className="text-lg font-medium mb-4" style={{color: '#00ffff'}}>Recent Events</h3>
                 <div className="space-y-2">
                   {securityEvents.slice(0, 3).map(event => (
@@ -571,26 +699,23 @@ function App() {
         {activeTab === 'cameras' && (
           <div className="space-y-6">
             {/* Add camera form */}
-            <div className="rounded-xl p-4" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
-              <h3 className="text-sm font-semibold mb-3" style={{color: '#00ffff'}}>Add IP / RTSP Camera</h3>
-              <form onSubmit={handleAddCamera} className="flex flex-wrap gap-2">
+            <div className="rounded-xl p-4" style={{background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)', border: '1px solid rgba(0,200,220,0.18)'}}>
+              <h3 style={{fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', color: 'rgba(0,220,255,0.8)', marginBottom: 12, fontFamily: "'Segoe UI', sans-serif"}}>Add IP / RTSP Camera</h3>
+              <form onSubmit={handleAddCamera} style={{display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8}}>
                 <input
-                  className="flex-1 min-w-32 rounded px-3 py-2 text-sm placeholder-gray-500"
-                  style={{background: '#111', border: '1px solid rgba(0,255,255,0.2)', color: 'white'}}
+                  style={{background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(0,200,220,0.22)', borderRadius: 7, padding: '9px 12px', fontSize: 13, color: 'white', outline: 'none', fontFamily: "'Segoe UI', sans-serif"}}
                   placeholder="ID (e.g. cam1)"
                   value={addCamId}
                   onChange={e => setAddCamId(e.target.value)}
                 />
                 <input
-                  className="flex-1 min-w-32 rounded px-3 py-2 text-sm"
-                  style={{background:'#111',border:'1px solid rgba(0,255,255,0.2)',color:'white'}}
+                  style={{background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(0,200,220,0.22)', borderRadius: 7, padding: '9px 12px', fontSize: 13, color: 'white', outline: 'none', fontFamily: "'Segoe UI', sans-serif"}}
                   placeholder="Name (optional)"
                   value={addCamName}
                   onChange={e => setAddCamName(e.target.value)}
                 />
                 <input
-                  className="flex-[2] min-w-48 rounded px-3 py-2 text-sm placeholder-gray-500"
-                  style={{background: '#111', border: '1px solid rgba(0,255,255,0.2)', color: 'white'}}
+                  style={{gridColumn: '1 / -1', background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(0,200,220,0.22)', borderRadius: 7, padding: '9px 12px', fontSize: 13, color: 'white', outline: 'none', fontFamily: "'Segoe UI', sans-serif"}}
                   placeholder="rtsp://192.168.x.x:554/stream"
                   value={addCamUrl}
                   onChange={e => setAddCamUrl(e.target.value)}
@@ -598,10 +723,9 @@ function App() {
                 <button
                   type="submit"
                   disabled={addCamBusy || !addCamId.trim() || !addCamUrl.trim()}
-                  className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50 transition-all"
-                  style={{background: '#00ffff', color: '#000', boxShadow: '0 0 8px rgba(0,255,255,0.3)'}}
+                  style={{gridColumn: '1 / -1', background: '#00ffff', color: '#000', border: 'none', borderRadius: 7, padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', letterSpacing: '0.06em', boxShadow: '0 0 12px rgba(0,255,255,0.3)', opacity: (addCamBusy || !addCamId.trim() || !addCamUrl.trim()) ? 0.45 : 1, fontFamily: "'Segoe UI', sans-serif", whiteSpace: 'nowrap'}}
                 >
-                  {addCamBusy ? 'Starting…' : 'Add'}
+                  {addCamBusy ? 'Starting…' : 'Add Camera'}
                 </button>
               </form>
               <div className="mt-3 flex items-center gap-3">
@@ -618,13 +742,13 @@ function App() {
 
             {/* Stream grid */}
             {streams.length === 0 ? (
-              <div className="flex items-center justify-center h-40 rounded-xl text-sm" style={{background: '#0a0a0a', color: 'rgba(0,255,255,0.4)', border: '1px dashed rgba(0,255,255,0.2)'}}>
+              <div className="flex items-center justify-center h-40 rounded-xl text-sm" style={{background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(8px)', color: 'rgba(0,220,240,0.4)', border: '1px dashed rgba(0,200,220,0.2)'}}>
                 No streams active — add a camera above
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {streams.map(s => (
-                  <div key={s.id} className="rounded-xl overflow-hidden" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>  
+                  <div key={s.id} className="rounded-xl overflow-hidden" style={{background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(0,200,220,0.18)'}}>  
                     <div className="flex items-center justify-between px-3 py-2 bg-gray-750">
                       <span className="text-sm font-medium" style={{color: '#00ffff'}}>{s.name}</span>
                       <div className="flex items-center gap-2">
@@ -682,6 +806,7 @@ function App() {
           />
         )}
       </main>
+      </div>{/* end content wrapper */}
     </div>
   );
 }

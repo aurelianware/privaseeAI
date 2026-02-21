@@ -7,11 +7,72 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
-const { randomUUID } = require('crypto');
+const { randomUUID, createCipheriv, createDecipheriv, randomBytes } = require('crypto');
 const fetch = require('node-fetch');
 const { default: AutelDroneSDK } = require('./src/services/AutelDroneSDK');
 const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrator');
 const { WebSocketServer } = require('ws');
+
+// Prisma client — lazy init so server starts even without DB
+let prisma = null;
+function getPrisma() {
+  if (!prisma) {
+    try {
+      const { PrismaClient } = require('@prisma/client');
+      prisma = new PrismaClient();
+    } catch (e) {
+      console.warn('⚠️  Prisma unavailable (no DB?):', e.message);
+    }
+  }
+  return prisma;
+}
+
+// ─── AES-256-GCM helpers ───────────────────────────────────────────────────────
+// Key must be 32 bytes hex in SETTINGS_ENCRYPTION_KEY env var.
+// Automatically generated and printed once if missing.
+function getEncryptionKey() {
+  const raw = process.env.SETTINGS_ENCRYPTION_KEY;
+  if (!raw || Buffer.from(raw, 'hex').length !== 32) {
+    const generated = randomBytes(32).toString('hex');
+    console.warn('⚠️  SETTINGS_ENCRYPTION_KEY missing or invalid. Add this to .env.local:\n' +
+      `SETTINGS_ENCRYPTION_KEY=${generated}`);
+    // Use the generated key for this session (not persistent — set it properly!)
+    process.env.SETTINGS_ENCRYPTION_KEY = generated;
+    return Buffer.from(generated, 'hex');
+  }
+  return Buffer.from(raw, 'hex');
+}
+
+function encryptValue(plaintext) {
+  const key = getEncryptionKey();
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
+}
+
+function decryptValue(stored) {
+  const [ivHex, tagHex, encHex] = stored.split(':');
+  const key = getEncryptionKey();
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
+  decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
+  return decipher.update(Buffer.from(encHex, 'hex')) + decipher.final('utf8');
+}
+
+// ─── Extract Entra OID from Bearer JWT (trusted since it comes from MSAL) ─────
+function extractEntraOid(req) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) return null;
+  try {
+    const payload = JSON.parse(
+      Buffer.from(auth.split('.')[1], 'base64url').toString('utf8')
+    );
+    return { oid: payload.oid || payload.sub, email: payload.preferred_username || payload.email || null };
+  } catch {
+    return null;
+  }
+}
 
 const fsp = fs.promises;
 
@@ -480,6 +541,78 @@ app.get('/api/debug/auth', (req, res) => {
     url: req.url,
     method: req.method
   });
+});
+
+// ─── User Settings API (multi-tenant, per-user persisted credentials) ─────────
+
+// GET /api/user/settings — load settings for the authenticated user
+app.get('/api/user/settings', async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+
+  const db = getPrisma();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+  try {
+    const record = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
+    if (!record) return res.json(null);
+
+    // Decrypt SAS token before sending
+    const sasToken = record.encryptedSasToken ? decryptValue(record.encryptedSasToken) : null;
+    res.json({
+      azureAccountName: record.azureAccountName,
+      azureContainerName: record.azureContainerName,
+      sasToken,
+      confidenceThreshold: record.confidenceThreshold,
+      humanDetection: record.humanDetection,
+      motionDetection: record.motionDetection,
+      notifications: record.notifications,
+      cloudSync: record.cloudSync,
+    });
+  } catch (err) {
+    console.error('GET /api/user/settings error:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// PUT /api/user/settings — upsert settings for the authenticated user
+app.put('/api/user/settings', async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+
+  const db = getPrisma();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+
+  const {
+    azureAccountName, azureContainerName, sasToken,
+    confidenceThreshold, humanDetection, motionDetection, notifications, cloudSync
+  } = req.body;
+
+  try {
+    const data = {
+      email: identity.email,
+      ...(azureAccountName !== undefined && { azureAccountName }),
+      ...(azureContainerName !== undefined && { azureContainerName }),
+      // Encrypt SAS token before storing
+      ...(sasToken !== undefined && { encryptedSasToken: sasToken ? encryptValue(sasToken) : null }),
+      ...(confidenceThreshold !== undefined && { confidenceThreshold }),
+      ...(humanDetection !== undefined && { humanDetection }),
+      ...(motionDetection !== undefined && { motionDetection }),
+      ...(notifications !== undefined && { notifications }),
+      ...(cloudSync !== undefined && { cloudSync }),
+    };
+
+    const record = await db.userSettings.upsert({
+      where: { entraOid: identity.oid },
+      create: { entraOid: identity.oid, ...data },
+      update: data,
+    });
+
+    res.json({ ok: true, updatedAt: record.updatedAt });
+  } catch (err) {
+    console.error('PUT /api/user/settings error:', err);
+    res.status(500).json({ error: 'Internal error' });
+  }
 });
 
 // Serve static files (React build)
