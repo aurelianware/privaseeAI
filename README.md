@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="public/privaseeai-kubrick.png" alt="PRIVASEE AI" width="320" />
+</p>
+
 # privaseeAI
 
 A sophisticated **web-based security monitoring application** that uses AI object detection to identify and track objects in real-time video streams. Built with React, TypeScript, and TensorFlow.js, featuring advanced overlay detection and cloud synchronization.
