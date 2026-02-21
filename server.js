@@ -467,22 +467,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// For any routes that don't match static files, serve the index.html file
-app.get('/{*splat}', (req, res) => {
-  const indexPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
-  } else {
-    res.status(404).send(`
-      <h1>Application Status</h1>
-      <p>Dist directory: ${distPath}</p>
-      <p>Dist exists: ${fs.existsSync(distPath)}</p>
-      <p>Current directory: ${__dirname}</p>
-      <p>Files in current directory: ${fs.readdirSync(__dirname).join(', ')}</p>
-    `);
-  }
-});
-
 // Debug endpoint to check authentication flow
 app.get('/api/debug/auth', (req, res) => {
   res.json({
