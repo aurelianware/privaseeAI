@@ -13,14 +13,21 @@
     
     <!-- Security and Privacy -->
     <meta http-equiv="Content-Security-Policy" content="
-      default-src 'self' https://github.com https://api.github.com;
+      default-src 'self';
       script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net;
       style-src 'self' 'unsafe-inline';
-      img-src 'self' data: blob:;
+      img-src 'self' data: blob: https://graph.microsoft.com;
       media-src 'self' blob:;
-      connect-src 'self' https://*.blob.core.windows.net https://tfhub.dev https://storage.googleapis.com https://cdn.jsdelivr.net https://github.com https://api.github.com;
+      connect-src 'self' blob:
+        https://login.microsoftonline.com
+        https://login.microsoft.com
+        https://graph.microsoft.com
+        https://*.blob.core.windows.net
+        https://tfhub.dev
+        https://storage.googleapis.com
+        https://cdn.jsdelivr.net;
       worker-src 'self' blob:;
-      form-action 'self' https://github.com;
+      form-action 'self' https://login.microsoftonline.com;
     ">
     
     <title>Home Security App</title>

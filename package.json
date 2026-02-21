@@ -20,12 +20,14 @@
     "security:check": "npm run lint:security && npm run security:audit",
     "type-check": "tsc --noEmit",
     "test": "vitest",
-    "mvp": "ts-node src/mvp/server.ts"
+    "mvp": "ts-node src/mvp/server.ts",
+    "cli": "node cli.js"
   },
   "dependencies": {
-    "@auth0/auth0-react": "^2.8.0",
     "@azure/identity": "^4.13.0",
     "@azure/keyvault-secrets": "^4.10.0",
+    "@azure/msal-browser": "^5.2.0",
+    "@azure/msal-react": "^5.0.4",
     "@prisma/client": "^7.3.0",
     "@stripe/stripe-js": "^8.6.4",
     "@tensorflow-models/coco-ssd": "^2.2.3",
@@ -38,6 +40,7 @@
     "date-fns": "^2.30.0",
     "express": "^5.1.0",
     "framer-motion": "^12.29.0",
+    "hls.js": "^1.6.15",
     "idb": "^8.0.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.563.0",

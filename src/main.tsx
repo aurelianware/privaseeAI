@@ -2,20 +2,22 @@ import './index.css'
 
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { Auth0Provider } from '@auth0/auth0-react'
+import { PublicClientApplication } from '@azure/msal-browser'
+import { MsalProvider } from '@azure/msal-react'
 import App from './App.tsx'
-import { auth0Config } from './auth0-config'
+import { msalConfig } from './msal-config'
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <Auth0Provider
-      domain={auth0Config.domain}
-      clientId={auth0Config.clientId}
-      authorizationParams={auth0Config.authorizationParams}
-      cacheLocation={auth0Config.cacheLocation}
-      useRefreshTokens={auth0Config.useRefreshTokens}
-    >
-      <App />
-    </Auth0Provider>
-  </React.StrictMode>,
-)
+const msalInstance = new PublicClientApplication(msalConfig)
+
+// MSAL v3+ requires initialize() to be awaited before rendering.
+// Without this the instance isn't ready to process the auth code on redirect,
+// causing an infinite login loop.
+msalInstance.initialize().then(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <MsalProvider instance={msalInstance}>
+        <App />
+      </MsalProvider>
+    </React.StrictMode>,
+  )
+})

@@ -1,9 +1,11 @@
-import { useState, useCallback, useEffect } from 'react';
-import { Camera, Shield, AlertTriangle, Settings as SettingsIcon } from 'lucide-react';
+import { useState, useCallback, useEffect, FormEvent } from 'react';
+import { Camera, Shield, AlertTriangle, Settings as SettingsIcon, Plane, Video } from 'lucide-react';
 import CameraStream from './components/CameraStream';
 import DetectionOverlay from './components/DetectionOverlay';
 import EventsList from './components/EventsList';
 import SettingsPanel from './components/SettingsPanel';
+import MissionDashboard from './components/MissionDashboard';
+import HlsVideoPlayer from './components/HlsVideoPlayer';
 import { ProtectedRoute, UserProfileDropdown } from './components/Auth0Components';
 import syncQueueService from './utils/syncQueue';
 import localStorageService, { SecurityEvent as StoredSecurityEvent } from './utils/storage';
@@ -51,7 +53,7 @@ function App() {
   const [isMonitoring, setIsMonitoring] = useState(false);
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
-  const [activeTab, setActiveTab] = useState<'live' | 'events' | 'settings'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'events' | 'cameras' | 'drone' | 'settings'>('live');
   const [settings, setSettings] = useState<Settings>({
     confidenceThreshold: 0.5,
     humanDetection: true,
@@ -62,6 +64,82 @@ function App() {
   });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [databaseReady, setDatabaseReady] = useState(false);
+  const [droneConnected, setDroneConnected] = useState(false);
+
+  // ─── Multi-stream camera state ───────────────────────────────────────────────
+  interface StreamInfo { id: string; name: string; url: string; active: boolean; hlsUrl: string | null; }
+  const [streams, setStreams] = useState<StreamInfo[]>([]);
+  const [addCamId, setAddCamId] = useState('');
+  const [addCamName, setAddCamName] = useState('');
+  const [addCamUrl, setAddCamUrl] = useState('');
+  const [addCamBusy, setAddCamBusy] = useState(false);
+  const [thermalProbing, setThermalProbing] = useState(false);
+
+  // Poll all streams every 5 s
+  useEffect(() => {
+    const poll = () =>
+      fetch('/api/streams').then(r => r.json()).then(setStreams).catch(() => {});
+    poll();
+    const id = setInterval(poll, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handleAddCamera = useCallback(async (e: FormEvent) => {
+    e.preventDefault();
+    if (!addCamId.trim() || !addCamUrl.trim()) return;
+    setAddCamBusy(true);
+    try {
+      await fetch('/api/streams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: addCamId.trim(), name: addCamName.trim() || addCamId.trim(), url: addCamUrl.trim() }),
+      });
+      setAddCamId(''); setAddCamName(''); setAddCamUrl('');
+      // refresh
+      fetch('/api/streams').then(r => r.json()).then(setStreams).catch(() => {});
+    } finally {
+      setAddCamBusy(false);
+    }
+  }, [addCamId, addCamName, addCamUrl]);
+
+  const handleRemoveCamera = useCallback((id: string) => {
+    fetch(`/api/streams/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(() =>
+      fetch('/api/streams').then(r => r.json()).then(setStreams)
+    ).catch(() => {});
+  }, []);
+
+  const handleThermalProbe = useCallback(async () => {
+    setThermalProbing(true);
+    try {
+      await fetch('/api/thermal/probe', { method: 'POST' });
+      fetch('/api/streams').then(r => r.json()).then(setStreams).catch(() => {});
+    } finally {
+      setThermalProbing(false);
+    }
+  }, []);
+
+  // Poll drone connection status
+  useEffect(() => {
+    const check = async () => {
+      try {
+        const res = await fetch('/api/drone/status');
+        const data = await res.json();
+        setDroneConnected(data.status === 'connected');
+      } catch {
+        setDroneConnected(false);
+      }
+    };
+    check();
+    const interval = setInterval(check, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleDronePause = () =>
+    fetch('/api/drone/pause', { method: 'POST' }).catch(console.error);
+  const handleDroneRTH = () =>
+    fetch('/api/drone/return-home', { method: 'POST' }).catch(console.error);
+  const handleDroneEmergency = () =>
+    fetch('/api/drone/emergency-land', { method: 'POST' }).catch(console.error);
 
   // Initialize database first
   useEffect(() => {
@@ -315,6 +393,8 @@ function App() {
             {[
               { id: 'live', label: 'Live View', icon: Camera },
               { id: 'events', label: 'Events', icon: AlertTriangle },
+              { id: 'cameras', label: 'Cameras', icon: Video },
+              { id: 'drone', label: 'Drone', icon: Plane },
               { id: 'settings', label: 'Settings', icon: SettingsIcon }
             ].map(tab => {
               const Icon = tab.icon;
@@ -427,6 +507,105 @@ function App() {
 
         {activeTab === 'events' && (
           <EventsList events={securityEvents} />
+        )}
+
+        {activeTab === 'cameras' && (
+          <div className="space-y-6">
+            {/* Add camera form */}
+            <div className="bg-gray-800 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-gray-200 mb-3">Add IP / RTSP Camera</h3>
+              <form onSubmit={handleAddCamera} className="flex flex-wrap gap-2">
+                <input
+                  className="flex-1 min-w-32 bg-gray-700 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  placeholder="ID (e.g. cam1)"
+                  value={addCamId}
+                  onChange={e => setAddCamId(e.target.value)}
+                />
+                <input
+                  className="flex-1 min-w-32 bg-gray-700 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  placeholder="Name (optional)"
+                  value={addCamName}
+                  onChange={e => setAddCamName(e.target.value)}
+                />
+                <input
+                  className="flex-[2] min-w-48 bg-gray-700 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  placeholder="rtsp://192.168.x.x:554/stream"
+                  value={addCamUrl}
+                  onChange={e => setAddCamUrl(e.target.value)}
+                />
+                <button
+                  type="submit"
+                  disabled={addCamBusy || !addCamId.trim() || !addCamUrl.trim()}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm font-medium"
+                >
+                  {addCamBusy ? 'Starting…' : 'Add'}
+                </button>
+              </form>
+              <div className="mt-3 flex items-center gap-3">
+                <span className="text-xs text-gray-500">AGM Taipan V2:</span>
+                <button
+                  onClick={handleThermalProbe}
+                  disabled={thermalProbing}
+                  className="px-3 py-1 text-xs bg-orange-700 hover:bg-orange-600 disabled:opacity-50 rounded font-medium"
+                >
+                  {thermalProbing ? 'Probing…' : 'Auto-detect thermal'}
+                </button>
+              </div>
+            </div>
+
+            {/* Stream grid */}
+            {streams.length === 0 ? (
+              <div className="flex items-center justify-center h-40 bg-gray-800 rounded-xl text-gray-500 text-sm">
+                No streams active — add a camera above
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {streams.map(s => (
+                  <div key={s.id} className="bg-gray-800 rounded-xl overflow-hidden">
+                    <div className="flex items-center justify-between px-3 py-2 bg-gray-750">
+                      <span className="text-sm font-medium">{s.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${s.active ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
+                        <button
+                          onClick={() => handleRemoveCamera(s.id)}
+                          className="text-xs text-red-400 hover:text-red-300 px-2 py-0.5 rounded"
+                        >
+                          Stop
+                        </button>
+                      </div>
+                    </div>
+                    {s.hlsUrl ? (
+                      <HlsVideoPlayer src={s.hlsUrl} label={s.name} className="w-full" />
+                    ) : (
+                      <div className="flex items-center justify-center h-36 text-gray-500 text-xs">
+                        {s.active ? 'Buffering…' : 'Stream stopped'}
+                      </div>
+                    )}
+                    <div className="px-3 py-1 text-xs text-gray-600 truncate">{s.url}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'drone' && (
+          <div className="space-y-4">
+            {/* Connection status banner */}
+            <div className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium ${
+              droneConnected ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-400'
+            }`}>
+              <Plane className="h-4 w-4" />
+              <span>{droneConnected ? 'Autel EVO Lite — Connected' : 'Drone not connected — connect your Mac to the drone WiFi and restart the server'}</span>
+            </div>
+            <MissionDashboard
+              missionId="autel-evo-lite"
+              websocketUrl={`ws://${window.location.host}/ws/drone`}
+              onPause={handleDronePause}
+              onReturnHome={handleDroneRTH}
+              onEmergencyLand={handleDroneEmergency}
+            />
+          </div>
         )}
 
         {activeTab === 'settings' && (

@@ -1,5 +1,7 @@
-import { useAuth0 } from '@auth0/auth0-react'
+import { useMsal, useIsAuthenticated, useAccount } from '@azure/msal-react'
+import { InteractionStatus } from '@azure/msal-browser'
 import { User, LogIn, LogOut, Loader } from 'lucide-react'
+import { loginRequest } from '../msal-config'
 
 // Loading component
 export const AuthLoading = () => (
@@ -13,7 +15,12 @@ export const AuthLoading = () => (
 
 // Login component
 export const AuthLogin = () => {
-  const { loginWithRedirect, isLoading } = useAuth0()
+  const { instance, inProgress } = useMsal()
+  const isLoading = inProgress !== InteractionStatus.None
+
+  const handleLogin = () => {
+    instance.loginRedirect(loginRequest).catch(console.error)
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-900">
@@ -26,12 +33,12 @@ export const AuthLogin = () => {
             Security Monitoring
           </h2>
           <p className="text-gray-400">
-            Sign in to access your dashboard
+            Sign in with your Microsoft account
           </p>
         </div>
 
         <button
-          onClick={() => loginWithRedirect()}
+          onClick={handleLogin}
           disabled={isLoading}
           className="w-full flex items-center justify-center px-4 py-3 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -40,11 +47,11 @@ export const AuthLogin = () => {
           ) : (
             <LogIn className="h-4 w-4 mr-2" />
           )}
-          {isLoading ? 'Signing in...' : 'Sign In'}
+          {isLoading ? 'Signing in...' : 'Sign in with Microsoft'}
         </button>
 
         <p className="mt-4 text-xs text-gray-500 text-center">
-          Powered by Auth0 - Secure authentication
+          Secured by Microsoft Entra ID (OIDC)
         </p>
       </div>
     </div>
@@ -53,31 +60,26 @@ export const AuthLogin = () => {
 
 // User profile dropdown
 export const UserProfileDropdown = () => {
-  const { user, logout } = useAuth0()
+  const { instance, accounts } = useMsal()
+  const account = useAccount(accounts[0] ?? null)
 
-  if (!user) return null
+  if (!account) return null
+
+  const handleLogout = () => {
+    instance.logoutRedirect({
+      postLogoutRedirectUri: window.location.origin,
+    }).catch(console.error)
+  }
 
   return (
     <div className="flex items-center space-x-3">
-      {user.picture && (
-        <img
-          src={user.picture}
-          alt={user.name || 'User'}
-          className="w-8 h-8 rounded-full"
-        />
-      )}
-      
       <div className="hidden md:block text-sm">
-        <p className="text-white font-medium">{user.name}</p>
-        <p className="text-gray-400 text-xs">{user.email}</p>
+        <p className="text-white font-medium">{account.name}</p>
+        <p className="text-gray-400 text-xs">{account.username}</p>
       </div>
 
       <button
-        onClick={() => logout({ 
-          logoutParams: { 
-            returnTo: window.location.origin 
-          } 
-        })}
+        onClick={handleLogout}
         className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-700 transition-colors"
         title="Sign out"
       >
@@ -93,7 +95,9 @@ interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
-  const { isLoading, isAuthenticated } = useAuth0()
+  const { inProgress } = useMsal()
+  const isAuthenticated = useIsAuthenticated()
+  const isLoading = inProgress !== InteractionStatus.None
 
   if (isLoading) {
     return <AuthLoading />
