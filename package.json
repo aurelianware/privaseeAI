@@ -99,6 +99,15 @@
   "license": "MIT",
   "overrides": {
     "hono": "^4.11.7",
-    "lodash": "^4.17.23"
+    "lodash": "^4.17.23",
+    "minimatch": "^10.2.1",
+    "minimist": "^1.2.8",
+    "mkdirp": "^3.0.1",
+    "glob": "^11.0.2",
+    "rimraf": "^6.0.1",
+    "flat-cache": "^6.1.4",
+    "file-entry-cache": "^9.1.0",
+    "ajv": "^8.17.1",
+    "qs": "^6.13.0"
   }
 }
