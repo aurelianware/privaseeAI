@@ -14,17 +14,59 @@ const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrat
 const { WebSocketServer } = require('ws');
 
 // Prisma client — lazy init so server starts even without DB
+// Prisma 7: datasourceUrl must be passed explicitly (url moved out of schema.prisma)
 let prisma = null;
 function getPrisma() {
   if (!prisma) {
     try {
       const { PrismaClient } = require('@prisma/client');
-      prisma = new PrismaClient();
+      prisma = new PrismaClient({
+        datasourceUrl: process.env.DATABASE_URL,
+      });
     } catch (e) {
       console.warn('⚠️  Prisma unavailable (no DB?):', e.message);
     }
   }
   return prisma;
+}
+
+// Stripe client — lazy init
+let stripeClient = null;
+function getStripe() {
+  if (!stripeClient) {
+    const key = process.env.STRIPE_SECRET_KEY;
+    if (!key) { console.warn('⚠️  STRIPE_SECRET_KEY not set'); return null; }
+    try {
+      const Stripe = require('stripe');
+      stripeClient = new Stripe(key, { apiVersion: '2025-12-15.clover' });
+    } catch (e) {
+      console.warn('⚠️  Stripe unavailable:', e.message);
+    }
+  }
+  return stripeClient;
+}
+
+// requirePro middleware — gates cloud-only endpoints behind PRO/ENTERPRISE
+async function requirePro(req, res, next) {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+  const db = getPrisma();
+  if (!db) return next(); // no DB → allow (dev mode)
+  try {
+    const settings = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
+    const tier = settings?.subscriptionTier || 'FREE';
+    if (tier === 'FREE') {
+      return res.status(403).json({
+        error: 'PRO or ENTERPRISE subscription required',
+        upgradeUrl: '/pricing',
+        currentTier: 'FREE',
+      });
+    }
+    next();
+  } catch (err) {
+    console.error('requirePro error:', err);
+    next(); // fail open to avoid locking out users on DB blip
+  }
 }
 
 // ─── AES-256-GCM helpers ───────────────────────────────────────────────────────
@@ -180,6 +222,105 @@ async function getSecret(name) {
     return process.env[name.replace('-', '_')];
   }
 }
+
+// ─── Stripe webhook — MUST be registered before express.json() ───────────────
+// Stripe requires the raw request body to verify the signature.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).json({ error: 'Stripe unavailable' });
+
+  const sig = req.headers['stripe-signature'];
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    console.warn('⚠️  STRIPE_WEBHOOK_SECRET not set — rejecting webhook');
+    return res.status(400).send('Webhook secret not configured');
+  }
+
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+  } catch (err) {
+    console.error('Stripe webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  const db = getPrisma();
+  if (!db) return res.json({ received: true }); // no DB — ack and skip
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const entraOid = session.metadata?.entraOid;
+        if (entraOid && session.subscription) {
+          const subscription = await stripe.subscriptions.retrieve(session.subscription);
+          const priceId = subscription.items.data[0]?.price?.id;
+          const tier = priceId === process.env.STRIPE_PRO_PRICE_ID ? 'PRO'
+                     : priceId === process.env.STRIPE_ENTERPRISE_PRICE_ID ? 'ENTERPRISE'
+                     : 'FREE';
+          await db.userSettings.upsert({
+            where: { entraOid },
+            create: {
+              entraOid,
+              subscriptionTier: tier,
+              stripeCustomerId: session.customer,
+              stripeSubscriptionId: session.subscription,
+              subscriptionStatus: 'active',
+              subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            },
+            update: {
+              subscriptionTier: tier,
+              stripeCustomerId: session.customer,
+              stripeSubscriptionId: session.subscription,
+              subscriptionStatus: 'active',
+              subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            },
+          });
+          console.log(`✅ Subscription activated for OID ${entraOid} → ${tier}`);
+        }
+        break;
+      }
+
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object;
+        const priceId = subscription.items.data[0]?.price?.id;
+        const tier = priceId === process.env.STRIPE_PRO_PRICE_ID ? 'PRO'
+                   : priceId === process.env.STRIPE_ENTERPRISE_PRICE_ID ? 'ENTERPRISE'
+                   : 'FREE';
+        await db.userSettings.updateMany({
+          where: { stripeSubscriptionId: subscription.id },
+          data: {
+            subscriptionTier: tier,
+            subscriptionStatus: subscription.status,
+            subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+          },
+        });
+        break;
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object;
+        await db.userSettings.updateMany({
+          where: { stripeSubscriptionId: subscription.id },
+          data: {
+            subscriptionTier: 'FREE',
+            subscriptionStatus: 'canceled',
+            stripeSubscriptionId: null,
+          },
+        });
+        break;
+      }
+
+      default:
+        // Unhandled event type — ack anyway
+        break;
+    }
+    res.json({ received: true });
+  } catch (err) {
+    console.error('Stripe webhook processing error:', err);
+    res.status(500).json({ error: 'Webhook processing failed' });
+  }
+});
 
 app.use(express.json());
 
@@ -612,6 +753,90 @@ app.put('/api/user/settings', async (req, res) => {
   } catch (err) {
     console.error('PUT /api/user/settings error:', err);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─── Stripe billing endpoints ─────────────────────────────────────────────────
+
+// POST /api/stripe/create-checkout-session
+// Body: { planType: 'PRO' | 'ENTERPRISE' | 'FREE' }
+// Returns: { checkoutUrl: string | null }
+app.post('/api/stripe/create-checkout-session', async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+
+  const { planType } = req.body;
+  const db = getPrisma();
+
+  // FREE plan — activate immediately, no Stripe
+  if (!planType || planType === 'FREE') {
+    if (db) {
+      await db.userSettings.upsert({
+        where: { entraOid: identity.oid },
+        create: { entraOid: identity.oid, email: identity.email, subscriptionTier: 'FREE', subscriptionStatus: 'active' },
+        update: { subscriptionTier: 'FREE', subscriptionStatus: 'active', stripeSubscriptionId: null },
+      });
+    }
+    return res.json({ checkoutUrl: null });
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return res.status(503).json({ message: 'Stripe unavailable — check STRIPE_SECRET_KEY' });
+
+  const priceId = planType === 'PRO'
+    ? process.env.STRIPE_PRO_PRICE_ID
+    : planType === 'ENTERPRISE'
+    ? process.env.STRIPE_ENTERPRISE_PRICE_ID
+    : null;
+
+  if (!priceId) return res.status(400).json({ message: `Invalid plan type: ${planType}` });
+
+  const baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
+
+  try {
+    // Reuse existing Stripe customer if we have one
+    let customerId;
+    if (db) {
+      const settings = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
+      customerId = settings?.stripeCustomerId;
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${baseUrl}/?session_id={CHECKOUT_SESSION_ID}&subscription=success`,
+      cancel_url: `${baseUrl}/?subscription=canceled`,
+      metadata: { entraOid: identity.oid },
+      ...(identity.email && !customerId && { customer_email: identity.email }),
+      ...(customerId && { customer: customerId }),
+    });
+
+    res.json({ checkoutUrl: session.url });
+  } catch (err) {
+    console.error('Stripe checkout error:', err);
+    res.status(500).json({ message: 'Failed to create checkout session' });
+  }
+});
+
+// GET /api/stripe/subscription-status
+// Returns: { tier: string, status: string, currentPeriodEnd: string | null }
+app.get('/api/stripe/subscription-status', async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+
+  const db = getPrisma();
+  if (!db) return res.json({ tier: 'FREE', status: 'active', currentPeriodEnd: null });
+
+  try {
+    const settings = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
+    res.json({
+      tier: settings?.subscriptionTier || 'FREE',
+      status: settings?.subscriptionStatus || 'active',
+      currentPeriodEnd: settings?.subscriptionCurrentPeriodEnd ?? null,
+    });
+  } catch (err) {
+    console.error('Subscription status error:', err);
+    res.status(500).json({ error: 'Failed to fetch subscription status' });
   }
 });
 

@@ -3,9 +3,9 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Prisma 7: connection URL is in prisma.config.ts, not here.
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // Multi-tenant organization model
@@ -181,6 +181,13 @@ model UserSettings {
   motionDetection      Boolean  @default(true)
   notifications        Boolean  @default(true)
   cloudSync            Boolean  @default(false)
+
+  // Stripe billing
+  subscriptionTier               String    @default("FREE")   // FREE, PRO, ENTERPRISE
+  subscriptionStatus             String    @default("active") // active, canceled, past_due, inactive
+  stripeCustomerId               String?   @unique
+  stripeSubscriptionId           String?
+  subscriptionCurrentPeriodEnd   DateTime?
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

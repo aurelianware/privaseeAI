@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useMsal } from '@azure/msal-react';
 import { Check, Zap, Shield, Users, Cloud, Star } from 'lucide-react';
 import { SUBSCRIPTION_PLANS } from '../lib/stripe';
 
@@ -96,12 +97,17 @@ const PricingCard = ({
 
 export const PricingSection = () => {
   const { isAuthenticated } = useAuth();
+  const { accounts } = useMsal();
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
 
+  const getAuthHeader = (): Record<string, string> => {
+    const token = (accounts[0] as any)?.idToken ?? null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
   const handleSelectPlan = async (planKey: string) => {
     if (!isAuthenticated) {
-      // Redirect to main page for login
       window.location.href = '/';
       return;
     }
@@ -114,6 +120,7 @@ export const PricingSection = () => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...getAuthHeader(),
         },
         body: JSON.stringify({ planType: planKey }),
       });
@@ -122,10 +129,8 @@ export const PricingSection = () => {
 
       if (response.ok) {
         if (data.checkoutUrl) {
-          // Redirect to Stripe Checkout
           window.location.href = data.checkoutUrl;
         } else {
-          // Handle free plan activation
           alert('Free plan activated successfully!');
           window.location.reload();
         }

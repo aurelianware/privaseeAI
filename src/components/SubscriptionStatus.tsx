@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useMsal } from '@azure/msal-react';
 import { Crown, Zap, Shield, CheckCircle, AlertTriangle } from 'lucide-react';
 import { SUBSCRIPTION_PLANS, SubscriptionPlan } from '../lib/stripe';
 
@@ -11,18 +12,27 @@ interface UserSubscription {
 
 export const SubscriptionStatus = () => {
   const { user, isAuthenticated } = useAuth();
+  const { accounts } = useMsal();
   const [subscription, setSubscription] = useState<UserSubscription | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const getAuthHeader = (): Record<string, string> => {
+    const token = (accounts[0] as any)?.idToken ?? null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
 
   useEffect(() => {
     if (isAuthenticated && user) {
       fetchSubscriptionStatus();
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated, user]);
 
   const fetchSubscriptionStatus = async () => {
     try {
-      const response = await fetch('/api/stripe/subscription-status');
+      const response = await fetch('/api/stripe/subscription-status', {
+        headers: getAuthHeader(),
+      });
       if (response.ok) {
         const data = await response.json();
         setSubscription(data);
