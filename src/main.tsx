@@ -7,14 +7,10 @@ import { MsalProvider } from '@azure/msal-react'
 import App from './App.tsx'
 import { msalConfig } from './msal-config'
 
-// Clear stale service worker caches on every load
+// Unregister any stale service workers
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.getRegistrations().then(regs => {
-    regs.forEach(r => r.unregister());
-  });
-  if ('caches' in window) {
-    caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
-  }
+  navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+  if ('caches' in window) caches.keys().then(keys => keys.forEach(k => caches.delete(k)));
 }
 
 const msalInstance = new PublicClientApplication(msalConfig)
