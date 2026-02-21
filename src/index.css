@@ -5,12 +5,10 @@
 /* Custom styles for the security app */
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: #111827;
+  background-color: #000000;
   color: white;
 }
 
@@ -28,23 +26,23 @@ body {
 
 .detection-box {
   animation: pulse-detection 2s infinite;
-  border: 2px solid #ef4444;
-  background-color: rgba(239, 68, 68, 0.1);
+  border: 2px solid #00ffff;
+  background-color: rgba(0, 255, 255, 0.08);
 }
 
 .detection-box.person {
-  border-color: #ef4444;
-  background-color: rgba(239, 68, 68, 0.1);
+  border-color: #ff4444;
+  background-color: rgba(255, 68, 68, 0.1);
 }
 
 .detection-box.vehicle {
-  border-color: #3b82f6;
-  background-color: rgba(59, 130, 246, 0.1);
+  border-color: #ffaa00;
+  background-color: rgba(255, 170, 0, 0.08);
 }
 
 .detection-box.animal {
-  border-color: #10b981;
-  background-color: rgba(16, 185, 129, 0.1);
+  border-color: #00ff88;
+  background-color: rgba(0, 255, 136, 0.08);
 }
 
 /* Camera stream styling */

@@ -352,19 +352,22 @@ function App() {
   }, [securityEvents, settings.notifications]);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-black text-white">
       {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 p-4">
+      <header className="bg-black p-4" style={{borderBottom: '1px solid rgba(0,255,255,0.3)', boxShadow: '0 2px 12px rgba(0,255,255,0.08)'}}>
         <div className="flex items-center justify-between max-w-6xl mx-auto">
           <div className="flex items-center space-x-3">
-            <Shield className="h-8 w-8 text-blue-400" />
-            <h1 className="text-xl font-bold">Home Security</h1>
+            <Shield className="h-8 w-8" style={{color: '#00ffff'}} />
+            <div>
+              <h1 className="text-xl font-bold" style={{color: '#00ffff'}}>privaseeAI</h1>
+              <p className="text-xs" style={{color: 'rgba(0,255,255,0.5)'}}>The Sentinel</p>
+            </div>
           </div>
 
           <div className="flex items-center space-x-4">
             {/* Status indicators */}
             <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm ${
-              isMonitoring ? 'bg-green-500' : 'bg-gray-600'
+              isMonitoring ? 'bg-green-900 text-green-300 border border-green-500' : 'bg-black text-gray-400 border border-gray-700'
             }`}>
               <div className={`w-2 h-2 rounded-full ${
                 isMonitoring ? 'bg-white animate-pulse' : 'bg-gray-400'
@@ -387,9 +390,9 @@ function App() {
       </header>
 
       {/* Navigation Tabs */}
-      <nav className="bg-gray-800 border-b border-gray-700">
+      <nav className="bg-[#0a0a0a]" style={{borderBottom: '1px solid rgba(0,255,255,0.2)'}}>
         <div className="max-w-6xl mx-auto px-4">
-          <div className="flex space-x-8">
+          <div className="flex space-x-6 overflow-x-auto">
             {[
               { id: 'live', label: 'Live View', icon: Camera },
               { id: 'events', label: 'Events', icon: AlertTriangle },
@@ -398,17 +401,18 @@ function App() {
               { id: 'settings', label: 'Settings', icon: SettingsIcon }
             ].map(tab => {
               const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id as any)}
-                  className={`flex items-center space-x-2 py-4 border-b-2 transition-colors ${
-                    activeTab === tab.id
-                      ? 'border-blue-400 text-blue-400'
-                      : 'border-transparent text-gray-400 hover:text-white'
-                  }`}
+                  className="flex items-center space-x-2 py-4 border-b-2 transition-all whitespace-nowrap text-sm"
+                  style={isActive
+                    ? { borderColor: '#00ffff', color: '#00ffff', textShadow: '0 0 8px rgba(0,255,255,0.5)' }
+                    : { borderColor: 'transparent', color: '#9ca3af' }
+                  }
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-4 w-4" />
                   <span>{tab.label}</span>
                 </button>
               );
@@ -422,8 +426,8 @@ function App() {
         {activeTab === 'live' && (
           <div className="space-y-6">
             {/* Camera View */}
-            <div className="bg-gray-800 rounded-lg overflow-hidden">
-              <div className="aspect-video relative">
+            <div className="rounded-lg overflow-hidden" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
+              <div className="aspect-video relative bg-black">
                 <CameraStream
                   onDetection={handleDetection}
                   isActive={isMonitoring}
@@ -433,19 +437,36 @@ function App() {
                 {isMonitoring && detectedObjects.length > 0 && (
                   <DetectionOverlay objects={detectedObjects} />
                 )}
+
+                {/* Inactive placeholder — shown when not monitoring */}
+                {!isMonitoring && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{background: 'rgba(0,0,0,0.97)'}}>
+                    <Shield className="h-16 w-16 mb-4" style={{color: 'rgba(0,255,255,0.3)'}}/>
+                    <p className="text-lg font-bold mb-1" style={{color: '#00ffff'}}>The Sentinel</p>
+                    <p className="text-sm mb-6" style={{color: 'rgba(255,255,255,0.4)'}}>Live monitoring is inactive</p>
+                    <button
+                      onClick={toggleMonitoring}
+                      className="px-8 py-3 rounded-lg font-semibold text-lg transition-all flex items-center space-x-2"
+                      style={{background: '#00ffff', color: '#000000', boxShadow: '0 0 20px rgba(0,255,255,0.4)'}}
+                    >
+                      <Camera className="h-5 w-5" />
+                      <span>Activate Sentinel</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Controls */}
-              <div className="p-4 border-t border-gray-700">
+              <div className="p-4" style={{borderTop: '1px solid rgba(0,255,255,0.1)'}}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
                     <button
                       onClick={toggleMonitoring}
-                      className={`px-6 py-2 rounded-lg font-medium transition-colors ${
-                        isMonitoring
-                          ? 'bg-red-500 hover:bg-red-600 text-white'
-                          : 'bg-green-500 hover:bg-green-600 text-white'
-                      }`}
+                      className="px-6 py-2 rounded-lg font-medium transition-all"
+                      style={isMonitoring
+                        ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 12px rgba(255,68,68,0.4)'}
+                        : {background: '#00ffff', color: '#000', boxShadow: '0 0 12px rgba(0,255,255,0.4)'}
+                      }
                     >
                       {isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}
                     </button>
@@ -479,11 +500,11 @@ function App() {
 
             {/* Recent Events Preview */}
             {securityEvents.length > 0 && (
-              <div className="bg-gray-800 rounded-lg p-4">
-                <h3 className="text-lg font-medium mb-4">Recent Events</h3>
+              <div className="rounded-lg p-4" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
+                <h3 className="text-lg font-medium mb-4" style={{color: '#00ffff'}}>Recent Events</h3>
                 <div className="space-y-2">
                   {securityEvents.slice(0, 3).map(event => (
-                    <div key={event.id} className="flex items-center justify-between p-2 bg-gray-700 rounded">
+                    <div key={event.id} className="flex items-center justify-between p-2 rounded" style={{background: 'rgba(0,255,255,0.04)', border: '1px solid rgba(0,255,255,0.08)'}}>  
                       <div>
                         <p className="text-sm font-medium">{event.message}</p>
                         <p className="text-xs text-gray-400">
@@ -512,23 +533,26 @@ function App() {
         {activeTab === 'cameras' && (
           <div className="space-y-6">
             {/* Add camera form */}
-            <div className="bg-gray-800 rounded-xl p-4">
-              <h3 className="text-sm font-semibold text-gray-200 mb-3">Add IP / RTSP Camera</h3>
+            <div className="rounded-xl p-4" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>
+              <h3 className="text-sm font-semibold mb-3" style={{color: '#00ffff'}}>Add IP / RTSP Camera</h3>
               <form onSubmit={handleAddCamera} className="flex flex-wrap gap-2">
                 <input
-                  className="flex-1 min-w-32 bg-gray-700 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  className="flex-1 min-w-32 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  style={{background: '#111', border: '1px solid rgba(0,255,255,0.2)', color: 'white'}}
                   placeholder="ID (e.g. cam1)"
                   value={addCamId}
                   onChange={e => setAddCamId(e.target.value)}
                 />
                 <input
-                  className="flex-1 min-w-32 bg-gray-700 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  className="flex-1 min-w-32 rounded px-3 py-2 text-sm"
+                  style={{background:'#111',border:'1px solid rgba(0,255,255,0.2)',color:'white'}}
                   placeholder="Name (optional)"
                   value={addCamName}
                   onChange={e => setAddCamName(e.target.value)}
                 />
                 <input
-                  className="flex-[2] min-w-48 bg-gray-700 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  className="flex-[2] min-w-48 rounded px-3 py-2 text-sm placeholder-gray-500"
+                  style={{background: '#111', border: '1px solid rgba(0,255,255,0.2)', color: 'white'}}
                   placeholder="rtsp://192.168.x.x:554/stream"
                   value={addCamUrl}
                   onChange={e => setAddCamUrl(e.target.value)}
@@ -536,7 +560,8 @@ function App() {
                 <button
                   type="submit"
                   disabled={addCamBusy || !addCamId.trim() || !addCamUrl.trim()}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 rounded text-sm font-medium"
+                  className="px-4 py-2 rounded text-sm font-medium disabled:opacity-50 transition-all"
+                  style={{background: '#00ffff', color: '#000', boxShadow: '0 0 8px rgba(0,255,255,0.3)'}}
                 >
                   {addCamBusy ? 'Starting…' : 'Add'}
                 </button>
@@ -555,15 +580,15 @@ function App() {
 
             {/* Stream grid */}
             {streams.length === 0 ? (
-              <div className="flex items-center justify-center h-40 bg-gray-800 rounded-xl text-gray-500 text-sm">
+              <div className="flex items-center justify-center h-40 rounded-xl text-sm" style={{background: '#0a0a0a', color: 'rgba(0,255,255,0.4)', border: '1px dashed rgba(0,255,255,0.2)'}}>
                 No streams active — add a camera above
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {streams.map(s => (
-                  <div key={s.id} className="bg-gray-800 rounded-xl overflow-hidden">
+                  <div key={s.id} className="rounded-xl overflow-hidden" style={{background: '#0a0a0a', border: '1px solid rgba(0,255,255,0.15)'}}>  
                     <div className="flex items-center justify-between px-3 py-2 bg-gray-750">
-                      <span className="text-sm font-medium">{s.name}</span>
+                      <span className="text-sm font-medium" style={{color: '#00ffff'}}>{s.name}</span>
                       <div className="flex items-center gap-2">
                         <span className={`w-2 h-2 rounded-full ${s.active ? 'bg-green-400 animate-pulse' : 'bg-gray-500'}`} />
                         <button
@@ -593,8 +618,12 @@ function App() {
           <div className="space-y-4">
             {/* Connection status banner */}
             <div className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-sm font-medium ${
-              droneConnected ? 'bg-green-900 text-green-300' : 'bg-gray-800 text-gray-400'
-            }`}>
+              droneConnected ? '' : ''
+            }`}
+              style={droneConnected
+                ? {background: 'rgba(0,255,136,0.1)', color: '#00ff88', border: '1px solid rgba(0,255,136,0.3)'}
+                : {background: '#0a0a0a', color: '#6b7280', border: '1px solid rgba(255,255,255,0.1)'}
+              }>
               <Plane className="h-4 w-4" />
               <span>{droneConnected ? 'Autel EVO Lite — Connected' : 'Drone not connected — connect your Mac to the drone WiFi and restart the server'}</span>
             </div>
