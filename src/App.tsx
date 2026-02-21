@@ -1,5 +1,5 @@
-import { useState, useCallback, useEffect, FormEvent } from 'react';
-import { Camera, Shield, AlertTriangle, Settings as SettingsIcon, Plane, Video } from 'lucide-react';
+import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
+import { Camera, Shield, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square } from 'lucide-react';
 import CameraStream from './components/CameraStream';
 import DetectionOverlay from './components/DetectionOverlay';
 import EventsList from './components/EventsList';
@@ -65,6 +65,10 @@ function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [databaseReady, setDatabaseReady] = useState(false);
   const [droneConnected, setDroneConnected] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const manualRecorderRef = useRef<MediaRecorder | null>(null);
+  const manualChunksRef = useRef<Blob[]>([]);
 
   // ─── Multi-stream camera state ───────────────────────────────────────────────
   interface StreamInfo { id: string; name: string; url: string; active: boolean; hlsUrl: string | null; }
@@ -320,6 +324,32 @@ function App() {
     }
   };
 
+  const toggleRecording = () => {
+    if (!cameraStream) return;
+    if (isRecording && manualRecorderRef.current) {
+      manualRecorderRef.current.stop();
+      return;
+    }
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9' : 'video/webm';
+    const recorder = new MediaRecorder(cameraStream, { mimeType });
+    manualChunksRef.current = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) manualChunksRef.current.push(e.data); };
+    recorder.onstop = () => {
+      const blob = new Blob(manualChunksRef.current, { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sentinel-${Date.now()}.webm`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setIsRecording(false);
+    };
+    recorder.start(250);
+    manualRecorderRef.current = recorder;
+    setIsRecording(true);
+  };
+
   // Request notification permissions
   useEffect(() => {
     if ('Notification' in window && Notification.permission === 'default') {
@@ -422,6 +452,7 @@ function App() {
                 <CameraStream
                   onDetection={handleDetection}
                   isActive={isMonitoring}
+                  onStreamReady={setCameraStream}
                 />
                 
                 {/* Detection Overlays */}
@@ -464,6 +495,21 @@ function App() {
                     <Camera className="h-4 w-4" />
                     <span>{isMonitoring ? 'Stop Monitoring' : 'Start Monitoring'}</span>
                   </button>
+
+                  {isMonitoring && cameraStream && (
+                    <button
+                      onClick={toggleRecording}
+                      className="px-4 py-2 rounded-lg font-semibold transition-all flex items-center space-x-2"
+                      style={isRecording
+                        ? {background: '#ff4444', color: '#fff', boxShadow: '0 0 12px rgba(255,68,68,0.5)'}
+                        : {background: 'transparent', color: '#ff4444', border: '1px solid #ff4444'}
+                      }
+                    >
+                      {isRecording ? <Square className="h-4 w-4" /> : <Circle className="h-4 w-4" />}
+                      <span>{isRecording ? 'Stop Rec' : 'Record'}</span>
+                      {isRecording && <span className="animate-pulse ml-1">●</span>}
+                    </button>
+                  )}
 
                   {detectedObjects.length > 0 && (
                     <div className="text-sm" style={{color: '#00ffff'}}>

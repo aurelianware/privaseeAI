@@ -15,9 +15,10 @@ interface DetectedObject {
 interface CameraStreamProps {
   onDetection: (objects: DetectedObject[]) => void;
   isActive: boolean;
+  onStreamReady?: (stream: MediaStream | null) => void;
 }
 
-const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) => {
+const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onStreamReady }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -101,6 +102,7 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
 
         setStream(mediaStream);
         setRequestingCamera(false);
+        onStreamReady?.(mediaStream);
         
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
@@ -135,6 +137,7 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
       if (stream) {
         stream.getTracks().forEach(track => track.stop());
         setStream(null);
+        onStreamReady?.(null);
       }
       if (detectionLoopRef.current) {
         cancelAnimationFrame(detectionLoopRef.current);
