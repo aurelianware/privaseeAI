@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/privaseeai-kubrick.png" alt="PRIVASEE AI" width="320" />
+  <img src="public/pprivaseeai-brand.png" alt="PRIVASEE AI" width="640" />
 </p>
 
 <h1 align="center">PRIVASEE AI</h1>
