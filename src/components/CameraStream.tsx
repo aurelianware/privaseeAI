@@ -100,18 +100,23 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
           mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
         }
 
+        console.log('📷 Camera started, tracks:', mediaStream.getTracks().map(t => t.label));
         setStream(mediaStream);
         setRequestingCamera(false);
         onStreamReady?.(mediaStream);
         
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
-          await videoRef.current.play().catch(() => {});
+          videoRef.current.play().catch((e) => {
+            console.error('▶️ video.play() failed:', e);
+          });
           videoRef.current.onloadedmetadata = () => {
+            console.log('📐 Video metadata loaded:', videoRef.current!.videoWidth, 'x', videoRef.current!.videoHeight);
             startDetectionLoop();
           };
           // If metadata already loaded, start immediately
           if (videoRef.current.readyState >= 2) {
+            console.log('📐 Video already ready (readyState', videoRef.current.readyState, ')');
             startDetectionLoop();
           }
         }
@@ -167,13 +172,6 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         // Run YOLO detection
         const detections = await yoloModelRef.current!.detect(video);
         setCurrentDetections(detections);
-
-        console.log(`🔍 Detection results: ${detections.length} objects found`);
-        if (detections.length > 0) {
-          detections.forEach((det, i) => {
-            console.log(`  ${i+1}. ${det.className} (${(det.score * 100).toFixed(1)}%) at [${det.bbox.map(n => n.toFixed(3)).join(', ')}]`);
-          });
-        }
 
         // Convert YOLO detections to app format (filter for security-relevant objects)
         const securityRelevantClasses = [
@@ -545,11 +543,8 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
   };
 
   const drawDetections = (detections: YOLODetection[], canvas: HTMLCanvasElement) => {
-    console.log(`🎨 drawDetections called with ${detections.length} detections, canvas size: ${canvas.width}x${canvas.height}`);
-    
     const ctx = canvas.getContext('2d');
     if (!ctx || !videoRef.current) {
-      console.log('❌ No canvas context or video ref');
       return;
     }
 
@@ -557,7 +552,6 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (detections.length === 0) {
-      console.log('ℹ️ No detections to draw');
       return;
     }
 
