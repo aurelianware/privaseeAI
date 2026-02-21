@@ -440,7 +440,7 @@ function App() {
 
                 {/* Inactive placeholder — shown when not monitoring */}
                 {!isMonitoring && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-20" style={{background: 'rgba(0,0,0,0.97)'}}>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center" style={{background: 'rgba(0,0,0,0.97)', zIndex: 100}}>
                     <Shield className="h-20 w-20 mb-6" style={{color: 'rgba(0,255,255,0.3)'}}/>
                     <p className="text-2xl font-bold mb-2" style={{color: '#00ffff'}}>The Sentinel</p>
                     <p className="text-sm mb-2" style={{color: 'rgba(255,255,255,0.4)'}}>Live monitoring is inactive</p>

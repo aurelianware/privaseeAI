@@ -7,6 +7,13 @@ import { MsalProvider } from '@azure/msal-react'
 import App from './App.tsx'
 import { msalConfig } from './msal-config'
 
+// Clear stale service worker caches on every load
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(regs => {
+    regs.forEach(r => r.unregister());
+  });
+}
+
 const msalInstance = new PublicClientApplication(msalConfig)
 
 // MSAL v3+ requires initialize() to be awaited before rendering.

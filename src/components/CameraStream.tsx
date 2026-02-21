@@ -755,8 +755,9 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
         </div>
       )}
 
-      {/* Status indicators */}
-      <div className="absolute top-4 left-4 flex flex-col space-y-2 z-30">
+      {/* Status indicators — only show when camera stream is running */}
+      {stream && (
+        <div className="absolute top-4 left-4 flex flex-col space-y-2 z-30">
         <div className={`px-3 py-1 rounded-full text-xs font-medium ${
           stream ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
         }`}>
@@ -781,17 +782,19 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive }) =>
           </div>
         )}
       </div>
+      )}
 
-      {/* FPS and performance info */}
-      <div className="absolute top-4 right-4 z-30 flex flex-col space-y-1">
-        <div className="bg-black bg-opacity-50 text-white px-3 py-1 rounded text-xs">
-          Detection: {currentDetections.length > 0 ? 'Active' : 'Monitoring'}
+      {/* FPS and performance info — only show when camera is active */}
+      {stream && (
+        <div className="absolute top-4 right-4 z-30 flex flex-col space-y-1">
+          <div className="bg-black bg-opacity-50 text-white px-3 py-1 rounded text-xs">
+            Detection: {currentDetections.length > 0 ? 'Active' : 'Monitoring'}
+          </div>
+          <div className="bg-black bg-opacity-50 text-white px-3 py-1 rounded text-xs">
+            Storage: Local + Cloud Sync
+          </div>
         </div>
-        
-        <div className="bg-black bg-opacity-50 text-white px-3 py-1 rounded text-xs">
-          Storage: Local + Cloud Sync
-        </div>
-      </div>
+      )}
     </div>
   );
 };
