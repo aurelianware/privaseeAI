@@ -26,7 +26,7 @@ PRIVASEE AI is a single-page application with an Express backend, designed for e
 
 
 <p align="center">
-  <img src="public/architecture_diagram.png" alt="PRIVASEE AI" width="640" />
+  <img src="architecture_diagram.png" alt="PRIVASEE AI" width="640" />
 </p>
 
 ```
