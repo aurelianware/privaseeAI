@@ -24,6 +24,11 @@
 
 PRIVASEE AI is a single-page application with an Express backend, designed for edge deployment on any device with a camera.
 
+
+<p align="center">
+  <img src="public/architecture_diagram.png" alt="PRIVASEE AI" width="640" />
+</p>
+
 ```
 ┌────────────────────────────────────────────────────────────────┐
 │                   Browser / Mobile / Tablet                    │
