@@ -1,16 +1,6 @@
-import Stripe from 'stripe';
-
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error('STRIPE_SECRET_KEY is required');
-}
-
-// Initialize Stripe with secret key
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  apiVersion: '2026-01-28.clover' as any,
-});
-
 // Subscription plan configuration
+// NOTE: Stripe SDK initialisation (secret key) lives in server.js only.
+// This file is safe to import in the browser.
 export const SUBSCRIPTION_PLANS = {
   FREE: {
     name: 'Free',
@@ -34,7 +24,7 @@ export const SUBSCRIPTION_PLANS = {
   PRO: {
     name: 'Pro',
     price: 9.99,
-    priceId: process.env.STRIPE_PRO_PRICE_ID,
+    priceId: null, // resolved server-side via STRIPE_PRO_PRICE_ID env var
     features: [
       'Up to 10 devices',
       'Advanced AI detection',
@@ -54,7 +44,7 @@ export const SUBSCRIPTION_PLANS = {
   ENTERPRISE: {
     name: 'Enterprise',
     price: 29.99,
-    priceId: process.env.STRIPE_ENTERPRISE_PRICE_ID,
+    priceId: null, // resolved server-side via STRIPE_ENTERPRISE_PRICE_ID env var
     features: [
       'Unlimited devices',
       'Premium AI detection',

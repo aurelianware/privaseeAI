@@ -1,4 +1,6 @@
 require('ts-node/register/transpile-only');
+// Load .env.local in development (Vite handles this for the frontend automatically)
+require('dotenv').config({ path: '.env.local' });
 
 const express = require('express');
 const { DefaultAzureCredential } = require('@azure/identity');
@@ -7,22 +9,25 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
-const { randomUUID, createCipheriv, createDecipheriv, randomBytes } = require('crypto');
+const { randomUUID, createCipheriv, createDecipheriv, randomBytes, createHmac } = require('crypto');
 const fetch = require('node-fetch');
 const { default: AutelDroneSDK } = require('./src/services/AutelDroneSDK');
 const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrator');
 const { WebSocketServer } = require('ws');
 
 // Prisma client — lazy init so server starts even without DB
-// Prisma 7: datasourceUrl must be passed explicitly (url moved out of schema.prisma)
+// Prisma 7 requires a driver adapter (dropped traditional library engine).
+// Using @prisma/adapter-pg with the pg Pool for PostgreSQL connections.
 let prisma = null;
 function getPrisma() {
   if (!prisma) {
     try {
       const { PrismaClient } = require('@prisma/client');
-      prisma = new PrismaClient({
-        datasourceUrl: process.env.DATABASE_URL,
-      });
+      const { Pool } = require('pg');
+      const { PrismaPg } = require('@prisma/adapter-pg');
+      const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+      const adapter = new PrismaPg(pool);
+      prisma = new PrismaClient({ adapter });
     } catch (e) {
       console.warn('⚠️  Prisma unavailable (no DB?):', e.message);
     }
@@ -100,6 +105,86 @@ function decryptValue(stored) {
   const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(ivHex, 'hex'));
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
   return decipher.update(Buffer.from(encHex, 'hex')) + decipher.final('utf8');
+}
+
+// ─── Managed Azure Blob Storage helpers ───────────────────────────────────────
+
+/** Derive a valid Azure container name from an Entra OID GUID.
+ *  Container names: 3–63 lowercase alphanumeric + hyphens, start/end with letter/number. */
+function sanitizeOidForContainer(oid) {
+  return ('user-' + oid.replace(/-/g, '')).slice(0, 63).toLowerCase();
+}
+
+/** Generate a short-lived, container-scoped SAS token signed with the storage account key.
+ *  Returns the raw SAS query string (no leading '?'). */
+function generateContainerSas(containerName, durationMinutes = 60) {
+  const accountName = process.env.AZURE_STORAGE_ACCOUNT;
+  const accountKey  = process.env.AZURE_STORAGE_ACCOUNT_KEY;
+  if (!accountName || !accountKey) {
+    throw new Error('AZURE_STORAGE_ACCOUNT and AZURE_STORAGE_ACCOUNT_KEY are required for managed storage');
+  }
+
+  const now    = new Date();
+  const start  = new Date(now.getTime() - 60_000); // 1 min back for clock skew
+  const expiry = new Date(now.getTime() + durationMinutes * 60_000);
+  const fmt    = d => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+
+  const sv = '2022-11-02'; // signed service version
+  const ss = 'b';          // blob service only
+  const srt = 'co';        // container + object
+  const sp = 'rwdlac';     // read, write, delete, list, add, create
+  const se = fmt(expiry);
+  const st = fmt(start);
+  const spr = 'https';
+
+  // String-to-sign for Account SAS (service version 2020-12-06+)
+  // Exactly 10 components, each followed by \n (trailing \n required)
+  // Ref: https://learn.microsoft.com/en-us/rest/api/storageservices/create-account-sas
+  const stringToSign =
+    accountName + '\n' +
+    sp          + '\n' +  // signedPermissions
+    ss          + '\n' +  // signedServices
+    srt         + '\n' +  // signedResourceTypes
+    st          + '\n' +  // signedStart
+    se          + '\n' +  // signedExpiry
+                  '\n' +  // signedIP (empty = any)
+    spr         + '\n' +  // signedProtocol
+    sv          + '\n' +  // signedVersion
+                  '\n';   // signedEncryptionScope (empty)
+
+  const keyBytes = Buffer.from(accountKey, 'base64');
+  const sig = createHmac('sha256', keyBytes).update(stringToSign, 'utf8').digest('base64');
+
+  return `sv=${sv}&ss=${ss}&srt=${srt}&sp=${encodeURIComponent(sp)}&st=${encodeURIComponent(st)}&se=${encodeURIComponent(se)}&spr=${spr}&sig=${encodeURIComponent(sig)}`;
+}
+
+/** Idempotently create an Azure Blob container for the user and mark DB.
+ *  Uses a long-lived admin SAS stored in AZURE_ADMIN_SAS for container creation. */
+async function provisionUserContainer(entraOid, db) {
+  const accountName  = process.env.AZURE_STORAGE_ACCOUNT;
+  const adminSas     = process.env.AZURE_ADMIN_SAS;
+  if (!accountName || !adminSas) {
+    throw new Error('AZURE_STORAGE_ACCOUNT and AZURE_ADMIN_SAS are required for container provisioning');
+  }
+
+  const containerName = sanitizeOidForContainer(entraOid);
+  const url = `https://${accountName}.blob.core.windows.net/${containerName}?restype=container&${adminSas}`;
+
+  const res = await fetch(url, { method: 'PUT', headers: { 'x-ms-version': '2022-11-02' } });
+  // 201 = created, 409 = already exists — both are success
+  if (res.status !== 201 && res.status !== 409) {
+    const body = await res.text();
+    throw new Error(`Container provisioning failed: HTTP ${res.status} — ${body.slice(0, 200)}`);
+  }
+
+  if (db) {
+    await db.userSettings.update({
+      where: { entraOid },
+      data: { managedContainer: true },
+    });
+  }
+
+  return containerName;
 }
 
 // ─── Extract Entra OID from Bearer JWT (trusted since it comes from MSAL) ─────
@@ -636,17 +721,23 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
               stripeCustomerId: session.customer,
               stripeSubscriptionId: session.subscription,
               subscriptionStatus: 'active',
-              subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+              subscriptionCurrentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
             },
             update: {
               subscriptionTier: tier,
               stripeCustomerId: session.customer,
               stripeSubscriptionId: session.subscription,
               subscriptionStatus: 'active',
-              subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+              subscriptionCurrentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
             },
           });
           console.log(`✅ Subscription activated for OID ${entraOid} → ${tier}`);
+          // Fast-path: provision managed container immediately (GET /api/user/settings will also handle lazily)
+          if (['PRO', 'ENTERPRISE'].includes(tier)) {
+            provisionUserContainer(entraOid, db).catch(err =>
+              console.error('[STORAGE] Container provision failed in webhook:', err.message)
+            );
+          }
         }
         break;
       }
@@ -662,7 +753,7 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async
           data: {
             subscriptionTier: tier,
             subscriptionStatus: subscription.status,
-            subscriptionCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            subscriptionCurrentPeriodEnd: subscription.current_period_end ? new Date(subscription.current_period_end * 1000) : null,
           },
         });
         break;
@@ -755,9 +846,21 @@ function validatePayload(body) {
   return null;
 }
 
+// Daily-rotating JSONL log directory
+const eventLogDir = path.join(__dirname, 'logs');
+
 async function logEventToDb(entry) {
-  // TODO: replace with real DB insert; keep non-blocking simulation
-  console.log('Event log:', entry);
+  const record = { ...entry, at: entry.at || new Date().toISOString() };
+
+  // Always log to console for observability
+  console.log('[EVENT]', JSON.stringify(record));
+
+  // Non-blocking file persistence — append to logs/events-YYYY-MM-DD.jsonl
+  const date = new Date().toISOString().slice(0, 10);
+  const logFile = path.join(eventLogDir, `events-${date}.jsonl`);
+  fsp.mkdir(eventLogDir, { recursive: true })
+    .then(() => fsp.appendFile(logFile, JSON.stringify(record) + '\n'))
+    .catch(err => console.error('[EVENT] Failed to write event log:', err.message));
 }
 
 async function triggerDroneLaunch(event, correlationId) {
@@ -1068,17 +1171,48 @@ app.get('/api/user/settings', async (req, res) => {
     const record = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
     if (!record) return res.json(null);
 
-    // Decrypt SAS token before sending
+    const isPaidTier = ['PRO', 'ENTERPRISE'].includes(record.subscriptionTier);
+
+    // Managed storage: lazy-provision container for paid users, then return a fresh short-lived SAS
+    if (isPaidTier && process.env.AZURE_STORAGE_ACCOUNT_KEY && process.env.AZURE_ADMIN_SAS) {
+      try {
+        const containerName = await provisionUserContainer(identity.oid, db);
+        const sas = generateContainerSas(containerName, 60);
+        return res.json({
+          azureAccountName: process.env.AZURE_STORAGE_ACCOUNT,
+          azureContainerName: containerName,
+          sasToken: sas,
+          managedContainer: true,
+          confidenceThreshold: record.confidenceThreshold,
+          humanDetection: record.humanDetection,
+          motionDetection: record.motionDetection,
+          notifications: record.notifications,
+          cloudSync: record.cloudSync,
+          subscriptionTier: record.subscriptionTier,
+          subscriptionStatus: record.subscriptionStatus,
+          subscriptionCurrentPeriodEnd: record.subscriptionCurrentPeriodEnd,
+        });
+      } catch (storageErr) {
+        console.error('GET /api/user/settings managed storage error:', storageErr.message);
+        // Fall through to legacy BYOS response rather than failing the whole request
+      }
+    }
+
+    // Legacy BYOS path — decrypt stored SAS token
     const sasToken = record.encryptedSasToken ? decryptValue(record.encryptedSasToken) : null;
     res.json({
       azureAccountName: record.azureAccountName,
       azureContainerName: record.azureContainerName,
       sasToken,
+      managedContainer: record.managedContainer,
       confidenceThreshold: record.confidenceThreshold,
       humanDetection: record.humanDetection,
       motionDetection: record.motionDetection,
       notifications: record.notifications,
       cloudSync: record.cloudSync,
+      subscriptionTier: record.subscriptionTier,
+      subscriptionStatus: record.subscriptionStatus,
+      subscriptionCurrentPeriodEnd: record.subscriptionCurrentPeriodEnd,
     });
   } catch (err) {
     console.error('GET /api/user/settings error:', err);
@@ -1100,12 +1234,17 @@ app.put('/api/user/settings', async (req, res) => {
   } = req.body;
 
   try {
+    // Check if this is a managed-container user — if so, ignore client-submitted storage fields
+    const existing = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
+    const isManaged = existing?.managedContainer === true;
+
     const data = {
       email: identity.email,
-      ...(azureAccountName !== undefined && { azureAccountName }),
-      ...(azureContainerName !== undefined && { azureContainerName }),
-      // Encrypt SAS token before storing
-      ...(sasToken !== undefined && { encryptedSasToken: sasToken ? encryptValue(sasToken) : null }),
+      // Storage fields: only accept from client when user manages their own container
+      ...(!isManaged && azureAccountName !== undefined && { azureAccountName }),
+      ...(!isManaged && azureContainerName !== undefined && { azureContainerName }),
+      ...(!isManaged && sasToken !== undefined && { encryptedSasToken: sasToken ? encryptValue(sasToken) : null }),
+      // Preference fields always accepted
       ...(confidenceThreshold !== undefined && { confidenceThreshold }),
       ...(humanDetection !== undefined && { humanDetection }),
       ...(motionDetection !== undefined && { motionDetection }),
@@ -1229,6 +1368,31 @@ app.get('/{*splat}', (req, res) => {
   res.setHeader('Pragma', 'no-cache');
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
+
+// ─── Startup env validation ───────────────────────────────────────────────────
+// Warn clearly about missing config so prod log grep is easy.
+function checkEnv() {
+  const required = [
+    { key: 'DATABASE_URL',              impact: 'User settings and subscription data will not persist' },
+    { key: 'STRIPE_SECRET_KEY',         impact: 'Billing/checkout will be unavailable' },
+    { key: 'STRIPE_WEBHOOK_SECRET',     impact: 'Stripe webhooks will be rejected (subscription updates broken)' },
+    { key: 'STRIPE_PRO_PRICE_ID',       impact: 'PRO checkout sessions will fail' },
+    { key: 'STRIPE_ENTERPRISE_PRICE_ID',impact: 'ENTERPRISE checkout sessions will fail' },
+    { key: 'SETTINGS_ENCRYPTION_KEY',   impact: 'User settings will use a one-time key (lost on restart)' },
+    { key: 'AZURE_STORAGE_ACCOUNT',     impact: 'Managed per-user storage will be unavailable (PRO/ENTERPRISE)' },
+    { key: 'AZURE_STORAGE_ACCOUNT_KEY', impact: 'Server-generated SAS tokens will fail (managed storage broken)' },
+    { key: 'AZURE_ADMIN_SAS',           impact: 'Container provisioning will fail (new PRO/ENTERPRISE users get no storage)' },
+  ];
+  const missing = required.filter(({ key }) => !process.env[key]);
+  if (missing.length) {
+    console.warn('\n⚠️  MISSING ENVIRONMENT VARIABLES:');
+    missing.forEach(({ key, impact }) =>
+      console.warn(`   • ${key.padEnd(30)} → ${impact}`)
+    );
+    console.warn('   Set these in .env.local (dev) or your container/ACA secrets (prod)\n');
+  }
+}
+checkEnv();
 
 const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);

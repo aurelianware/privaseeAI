@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
-import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square } from 'lucide-react';
+import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square, CreditCard } from 'lucide-react';
 import { useAccount, useMsal } from '@azure/msal-react';
 import CameraStream from './components/CameraStream';
 import DetectionOverlay from './components/DetectionOverlay';
@@ -9,6 +9,8 @@ import MissionDashboard from './components/MissionDashboard';
 import MissionLauncher from './components/MissionLauncher';
 import HlsVideoPlayer from './components/HlsVideoPlayer';
 import CallPanel from './components/CallPanel';
+import PricingSection from './components/PricingSection';
+import SubscriptionStatus from './components/SubscriptionStatus';
 import { ProtectedRoute, UserProfileDropdown } from './components/Auth0Components';
 import syncQueueService from './utils/syncQueue';
 import localStorageService, { SecurityEvent as StoredSecurityEvent } from './utils/storage';
@@ -46,6 +48,7 @@ interface Settings {
   motionDetection: boolean;
   notifications: boolean;
   cloudSync: boolean;
+  managedContainer?: boolean;
   azureConfig?: {
     accountName: string;
     containerName: string;
@@ -66,7 +69,7 @@ function App() {
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
-  const [activeTab, setActiveTab] = useState<'live' | 'events' | 'cameras' | 'drone' | 'settings'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'events' | 'cameras' | 'drone' | 'settings' | 'billing'>('live');
   const [settings, setSettings] = useState<Settings>({
     confidenceThreshold: 0.5,
     humanDetection: true,
@@ -269,6 +272,7 @@ function App() {
             ...prev,
             ...(remote.confidenceThreshold !== undefined && { confidenceThreshold: remote.confidenceThreshold }),
             ...(remote.cloudSync !== undefined && { cloudSync: remote.cloudSync }),
+            ...(remote.managedContainer !== undefined && { managedContainer: remote.managedContainer }),
             azureConfig: (remote.azureAccountName && remote.azureContainerName && remote.sasToken)
               ? { accountName: remote.azureAccountName, containerName: remote.azureContainerName, sasToken: remote.sasToken }
               : prev.azureConfig
@@ -532,7 +536,8 @@ function App() {
               { id: 'events', label: 'Events', icon: AlertTriangle },
               { id: 'cameras', label: 'Cameras', icon: Video },
               { id: 'drone', label: 'Drone', icon: Plane },
-              { id: 'settings', label: 'Settings', icon: SettingsIcon }
+              { id: 'settings', label: 'Settings', icon: SettingsIcon },
+              { id: 'billing', label: 'Billing', icon: CreditCard }
             ].map(tab => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
@@ -832,6 +837,13 @@ function App() {
             settings={settings}
             onSettingsChange={setSettings}
           />
+        )}
+
+        {activeTab === 'billing' && (
+          <div className="space-y-6">
+            <SubscriptionStatus />
+            <PricingSection />
+          </div>
         )}
       </main>
 

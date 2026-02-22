@@ -13,7 +13,7 @@ try {
   // dotenv optional — not needed in production
 }
 
-// Prisma 7: connection URL lives here, not in schema.prisma datasource block.
+// Prisma 7: connection URL lives here for CLI (migrate/push/studio).
 export default defineConfig({
   datasource: {
     url: process.env.DATABASE_URL as string,

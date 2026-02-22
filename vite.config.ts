@@ -14,7 +14,7 @@ export default defineConfig({
       '/streams': 'http://localhost:3002',
       '/thermal': 'http://localhost:3002',
       '/health': 'http://localhost:3002',
-      '/ws': { target: 'ws://localhost:3002', ws: true }
+      '/ws': { target: 'ws://localhost:3002', ws: true, changeOrigin: true }
     }
   },
   build: {

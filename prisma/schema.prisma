@@ -1,6 +1,7 @@
 // Prisma Schema for Production Multi-Tenant Security Application
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "library"
 }
 
 // Prisma 7: connection URL is in prisma.config.ts, not here.
@@ -188,6 +189,9 @@ model UserSettings {
   stripeCustomerId               String?   @unique
   stripeSubscriptionId           String?
   subscriptionCurrentPeriodEnd   DateTime?
+
+  // Managed storage: server-provisioned container per paid user
+  managedContainer     Boolean  @default(false)
 
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt

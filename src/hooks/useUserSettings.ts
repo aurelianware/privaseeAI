@@ -13,11 +13,15 @@ export interface RemoteUserSettings {
   azureAccountName?: string;
   azureContainerName?: string;
   sasToken?: string;
+  managedContainer?: boolean;
   confidenceThreshold?: number;
   humanDetection?: boolean;
   motionDetection?: boolean;
   notifications?: boolean;
   cloudSync?: boolean;
+  subscriptionTier?: string;
+  subscriptionStatus?: string;
+  subscriptionCurrentPeriodEnd?: string;
 }
 
 function getIdToken(accounts: ReturnType<typeof useMsal>['accounts']): string | null {

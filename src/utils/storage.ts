@@ -418,9 +418,18 @@ class LocalStorageService {
     const index = store.index(indexName);
 
     return new Promise((resolve, reject) => {
-      const request = index.count(value);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
+      // IDBIndex.count() only accepts valid IDB key types (number, string, Date, Array).
+      // Booleans are not valid keys — fall back to a full scan + filter.
+      try {
+        const request = index.count(value);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      } catch {
+        const allReq = store.getAll();
+        allReq.onsuccess = () =>
+          resolve((allReq.result as any[]).filter(r => r[indexName] === value).length);
+        allReq.onerror = () => reject(allReq.error);
+      }
     });
   }
 

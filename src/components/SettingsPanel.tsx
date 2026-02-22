@@ -8,6 +8,7 @@ interface Settings {
   motionDetection: boolean;
   notifications: boolean;
   cloudSync: boolean;
+  managedContainer?: boolean;
   azureConfig?: {
     accountName: string;
     containerName: string;
@@ -282,79 +283,100 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSettingsChang
           {settings.cloudSync && (
             <div className="bg-gray-700 rounded-lg p-4">
               <h4 className="font-medium mb-3">Azure Blob Storage Configuration</h4>
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Storage Account Name
-                  </label>
-                  <input
-                    type="text"
-                    value={cloudConfig.accountName}
-                    onChange={(e) => setCloudConfig(prev => ({ ...prev, accountName: e.target.value }))}
-                    placeholder="mystorageaccount"
-                    className="w-full bg-gray-600 text-white rounded px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                  />
+              {settings.managedContainer ? (
+                // Managed storage — server provisions & rotates SAS automatically
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-green-400 text-sm font-medium">
+                    <span>✓</span>
+                    <span>Managed by privaseeAI</span>
+                  </div>
+                  <p className="text-xs text-gray-400">
+                    Your dedicated storage container is provisioned and managed automatically.
+                    Access tokens are rotated server-side on every session.
+                  </p>
+                  {settings.azureConfig?.accountName && (
+                    <div className="text-xs text-gray-500 space-y-1">
+                      <p>Account: <span className="text-gray-300">{settings.azureConfig.accountName}</span></p>
+                      <p>Container: <span className="text-gray-300">{settings.azureConfig.containerName}</span></p>
+                    </div>
+                  )}
                 </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Container Name
-                  </label>
-                  <input
-                    type="text"
-                    value={cloudConfig.containerName}
-                    onChange={(e) => setCloudConfig(prev => ({ ...prev, containerName: e.target.value }))}
-                    placeholder="security-events"
-                    className="w-full bg-gray-600 text-white rounded px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    SAS Token
-                  </label>
-                  <input
-                    type="password"
-                    value={cloudConfig.sasToken}
-                    onChange={(e) => setCloudConfig(prev => ({ ...prev, sasToken: e.target.value }))}
-                    placeholder="sv=2022-11-02&ss=b&srt=sco&sp=rwdlacup&se=..."
-                    className="w-full bg-gray-600 text-white rounded px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
-                  />
-                </div>
-                
-                <button
-                  onClick={async () => {
-                    setIsConfiguring(true);
-                    try {
-                      console.log('🔧 Starting cloud sync configuration...');
-                      console.log('Config:', cloudConfig);
-                      
-                      const success = await syncQueueService.configureCloudSync(cloudConfig);
-                      if (success) {
-                        // Update local settings and save to storage
-                        const updatedSettings = {
-                          ...settings,
-                          azureConfig: cloudConfig
-                        };
-                        onSettingsChange(updatedSettings);
-                        alert('✅ Cloud sync configured successfully!');
-                      } else {
-                        console.error('❌ Cloud sync configuration failed');
-                        alert('❌ Failed to configure cloud sync. Check the browser console for details.\n\nCommon issues:\n1. CORS not configured in Azure\n2. Container does not exist\n3. SAS token expired or wrong permissions');
+              ) : (
+                // BYOS — manual configuration
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Storage Account Name
+                    </label>
+                    <input
+                      type="text"
+                      value={cloudConfig.accountName}
+                      onChange={(e) => setCloudConfig(prev => ({ ...prev, accountName: e.target.value }))}
+                      placeholder="mystorageaccount"
+                      className="w-full bg-gray-600 text-white rounded px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Container Name
+                    </label>
+                    <input
+                      type="text"
+                      value={cloudConfig.containerName}
+                      onChange={(e) => setCloudConfig(prev => ({ ...prev, containerName: e.target.value }))}
+                      placeholder="security-events"
+                      className="w-full bg-gray-600 text-white rounded px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      SAS Token
+                    </label>
+                    <input
+                      type="password"
+                      value={cloudConfig.sasToken}
+                      onChange={(e) => setCloudConfig(prev => ({ ...prev, sasToken: e.target.value }))}
+                      placeholder="sv=2022-11-02&ss=b&srt=sco&sp=rwdlacup&se=..."
+                      className="w-full bg-gray-600 text-white rounded px-3 py-2 text-sm focus:ring-2 focus:ring-purple-500 focus:outline-none"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      setIsConfiguring(true);
+                      try {
+                        console.log('🔧 Starting cloud sync configuration...');
+                        console.log('Config:', cloudConfig);
+
+                        const success = await syncQueueService.configureCloudSync(cloudConfig);
+                        if (success) {
+                          const updatedSettings = {
+                            ...settings,
+                            azureConfig: cloudConfig
+                          };
+                          onSettingsChange(updatedSettings);
+                          alert('✅ Cloud sync configured successfully!');
+                        } else {
+                          console.error('❌ Cloud sync configuration failed');
+                          alert('❌ Failed to configure cloud sync. Check the browser console for details.\n\nCommon issues:\n1. CORS not configured in Azure\n2. Container does not exist\n3. SAS token expired or wrong permissions');
+                        }
+                      } catch (error) {
+                        console.error('❌ Cloud sync configuration error:', error);
+                        alert('❌ Configuration error: ' + error);
+                      } finally {
+                        setIsConfiguring(false);
                       }
-                    } catch (error) {
-                      console.error('❌ Cloud sync configuration error:', error);
-                      alert('❌ Configuration error: ' + error);
-                    } finally {
-                      setIsConfiguring(false);
-                    }
-                  }}
-                  disabled={isConfiguring || !cloudConfig.accountName || !cloudConfig.containerName || !cloudConfig.sasToken}
-                  className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isConfiguring ? '⏳ Testing...' : '✅ Save & Test Configuration'}
-                </button>
-              </div>
+                    }}
+                    disabled={isConfiguring || !cloudConfig.accountName || !cloudConfig.containerName || !cloudConfig.sasToken}
+                    className="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isConfiguring ? '⏳ Testing...' : '✅ Save & Test Configuration'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
