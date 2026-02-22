@@ -569,7 +569,7 @@ function App() {
           <div className="space-y-6">
             {/* Camera View */}
             <div className="rounded-lg overflow-hidden" style={{background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', border: '1px solid rgba(0,200,220,0.18)'}}>
-              <div className="relative bg-black w-full" style={{height: '58vh'}}>
+              <div className="relative bg-black w-full" style={{aspectRatio: '16/9', maxHeight: '65vh'}}>
                 <CameraStream
                   onDetection={handleDetection}
                   isActive={true}

@@ -35,14 +35,25 @@ export class YOLOModel {
     try {
       // Use COCO-SSD detect method
       const predictions = await this.model.detect(imageElement);
-      
+
+      // COCO-SSD runs on the video's intrinsic pixel data (videoWidth × videoHeight).
+      // For HTMLVideoElement, .width/.height return the CSS layout dimensions which can
+      // differ from the actual frame resolution, causing bounding boxes to be offset.
+      // Always normalise against the intrinsic dimensions.
+      const imgW = (imageElement instanceof HTMLVideoElement)
+        ? (imageElement.videoWidth  || imageElement.width)
+        : imageElement.width;
+      const imgH = (imageElement instanceof HTMLVideoElement)
+        ? (imageElement.videoHeight || imageElement.height)
+        : imageElement.height;
+
       // Convert COCO-SSD predictions to our format
       const detections: YOLODetection[] = predictions.map((prediction, index) => ({
         bbox: [
-          prediction.bbox[0] / imageElement.width,  // x
-          prediction.bbox[1] / imageElement.height, // y
-          prediction.bbox[2] / imageElement.width,  // width
-          prediction.bbox[3] / imageElement.height  // height
+          prediction.bbox[0] / imgW,  // x
+          prediction.bbox[1] / imgH,  // y
+          prediction.bbox[2] / imgW,  // width
+          prediction.bbox[3] / imgH   // height
         ],
         score: prediction.score,
         classId: index, // COCO-SSD doesn't provide class ID directly
