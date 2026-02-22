@@ -57,8 +57,11 @@ jobs:
         FULL_IMAGE_NAME=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
         LATEST_IMAGE=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:latest
         
-        # Build the Docker image
-        docker build -t ${FULL_IMAGE_NAME} -t ${LATEST_IMAGE} .
+        # Build the Docker image (VITE_ vars must be baked in at build time)
+        docker build \
+          --build-arg VITE_ENTRA_CLIENT_ID=${{ secrets.VITE_ENTRA_CLIENT_ID }} \
+          --build-arg VITE_ENTRA_REDIRECT_URI=https://portal.privaseeai.net \
+          -t ${FULL_IMAGE_NAME} -t ${LATEST_IMAGE} .
         
         # Push both tags
         docker push ${FULL_IMAGE_NAME}

@@ -2,11 +2,11 @@
 FROM node:20.19-bullseye AS build
 WORKDIR /app
 
-# Accept build arguments for MSAL / Azure AD config baked into the frontend
-ARG VITE_AZURE_CLIENT_ID
-ARG VITE_AZURE_TENANT_ID
-ENV VITE_AZURE_CLIENT_ID=$VITE_AZURE_CLIENT_ID
-ENV VITE_AZURE_TENANT_ID=$VITE_AZURE_TENANT_ID
+# Accept build arguments for MSAL / Azure AD config baked into the frontend bundle
+ARG VITE_ENTRA_CLIENT_ID
+ARG VITE_ENTRA_REDIRECT_URI
+ENV VITE_ENTRA_CLIENT_ID=$VITE_ENTRA_CLIENT_ID
+ENV VITE_ENTRA_REDIRECT_URI=$VITE_ENTRA_REDIRECT_URI
 
 COPY package*.json ./
 RUN npm ci
