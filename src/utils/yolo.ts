@@ -25,8 +25,11 @@ export interface YOLODetection {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
+// SAS token is read-only (permissions: rl), expires 2028-02-23.
+// To renew: az storage container generate-sas --name models --permissions rl --expiry <date> --https-only
 const YOLOV8_MODEL_URL =
-  'https://privaseeaistorage.blob.core.windows.net/models/yolov8n_web_model/model.json';
+  'https://privaseeaistorage.blob.core.windows.net/models/yolov8n_web_model/model.json' +
+  '?se=2028-02-23T00%3A00%3A00Z&sp=rl&spr=https&sv=2026-02-06&sr=c&sig=RN0MCGJpVe%2FEukIAWXLAvO4A%2B1iPeeebHhtqfpNzbfw%3D';
 const YOLOV8_INPUT_SIZE = 640;
 const YOLOV8_CONF_THRESHOLD = 0.35;
 const YOLOV8_IOU_THRESHOLD  = 0.45;
