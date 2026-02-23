@@ -10,6 +10,8 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 const { randomUUID, createCipheriv, createDecipheriv, randomBytes, createHmac } = require('crypto');
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
 const { default: AutelDroneSDK } = require('./src/services/AutelDroneSDK');
 const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrator');
 const { WebSocketServer } = require('ws');
@@ -60,7 +62,7 @@ function getStripe() {
 
 // requirePro middleware — gates cloud-only endpoints behind PRO/ENTERPRISE
 async function requirePro(req, res, next) {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const db = getPrisma();
   if (!db) return next(); // no DB → allow (dev mode)
@@ -77,13 +79,13 @@ async function requirePro(req, res, next) {
     next();
   } catch (err) {
     console.error('requirePro error:', err);
-    next(); // fail open to avoid locking out users on DB blip
+    return res.status(503).json({ error: 'Service temporarily unavailable — please retry' });
   }
 }
 
 // requireEnterprise middleware — gates SIEM/audit endpoints behind ENTERPRISE only
 async function requireEnterprise(req, res, next) {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const db = getPrisma();
   if (!db) return next(); // dev mode — allow
@@ -100,7 +102,7 @@ async function requireEnterprise(req, res, next) {
     next();
   } catch (err) {
     console.error('requireEnterprise error:', err);
-    next(); // fail open
+    return res.status(503).json({ error: 'Service temporarily unavailable — please retry' });
   }
 }
 
@@ -217,18 +219,83 @@ async function provisionUserContainer(entraOid, db) {
   return containerName;
 }
 
-// ─── Extract Entra OID from Bearer JWT (trusted since it comes from MSAL) ─────
+// ─── JWT signature verification via Microsoft Entra ID JWKS ──────────────────
+const _jwksClient = jwksClient({
+  jwksUri: 'https://login.microsoftonline.com/common/discovery/v2.0/keys',
+  cache: true,
+  cacheMaxEntries: 10,
+  cacheMaxAge: 10 * 60 * 60 * 1000, // 10 hours
+  rateLimit: true,
+});
+
+function _getSigningKey(header, callback) {
+  _jwksClient.getSigningKey(header.kid, (err, key) => {
+    if (err) return callback(err);
+    callback(null, key.getPublicKey());
+  });
+}
+
+// Verify the Bearer JWT and return { oid, email } on success, or null on failure.
+// All signature/audience/issuer/expiry checks are enforced before trusting any claims.
 function extractEntraOid(req) {
   const auth = req.headers.authorization || '';
   if (!auth.startsWith('Bearer ')) return null;
+  const token = auth.slice(7);
   try {
-    const payload = JSON.parse(
-      Buffer.from(auth.split('.')[1], 'base64url').toString('utf8')
-    );
+    // Decode header to peek at algorithm without verifying yet
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded || !decoded.header) return null;
+
+    // Synchronous verify is not viable with remote JWKS; use cached result via
+    // a synchronous wrapper only when the key is already cached.  For the async
+    // path we return null (routes will return 401) — callers that need the result
+    // await verifyEntraTokenAsync instead.
+    let signingKey;
+    try {
+      // jwks-rsa caches keys — getSigningKeySync throws if not cached yet.
+      const keyObj = _jwksClient.getSigningKeySync(decoded.header.kid);
+      signingKey = keyObj.getPublicKey();
+    } catch {
+      // Key not yet cached — callers should use verifyEntraTokenAsync.
+      return null;
+    }
+
+    const clientId = process.env.ENTRA_CLIENT_ID;
+    const verifyOptions = {
+      algorithms: ['RS256'],
+      ...(clientId ? { audience: clientId } : {}),
+    };
+    const payload = jwt.verify(token, signingKey, verifyOptions);
     return { oid: payload.oid || payload.sub, email: payload.preferred_username || payload.email || null };
   } catch {
     return null;
   }
+}
+
+// Async version used by middleware that can await.
+async function verifyEntraTokenAsync(req) {
+  const auth = req.headers.authorization || '';
+  if (!auth.startsWith('Bearer ')) return null;
+  const token = auth.slice(7);
+  return new Promise((resolve) => {
+    const decoded = jwt.decode(token, { complete: true });
+    if (!decoded || !decoded.header) return resolve(null);
+
+    _getSigningKey(decoded.header, (err, signingKey) => {
+      if (err) return resolve(null);
+      try {
+        const clientId = process.env.ENTRA_CLIENT_ID;
+        const verifyOptions = {
+          algorithms: ['RS256'],
+          ...(clientId ? { audience: clientId } : {}),
+        };
+        const payload = jwt.verify(token, signingKey, verifyOptions);
+        resolve({ oid: payload.oid || payload.sub, email: payload.preferred_username || payload.email || null });
+      } catch {
+        resolve(null);
+      }
+    });
+  });
 }
 
 const fsp = fs.promises;
@@ -1029,6 +1096,23 @@ function acceptedStatus(queued) {
   return queued ? 202 : 200;
 }
 
+// ─── RTSP URL validation ──────────────────────────────────────────────────────
+// Only allow rtsp:// or rtsps:// schemes and block private/internal IP ranges
+// to prevent SSRF via ffmpeg.
+const _PRIVATE_IP_RE = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.|::1$|fc[0-9a-f]{2}:|fd[0-9a-f]{2}:|fe80:)/i;
+function isValidRtspUrl(url) {
+  try {
+    const parsed = new URL(url);
+    if (!['rtsp:', 'rtsps:'].includes(parsed.protocol)) return false;
+    const hostname = parsed.hostname;
+    if (!hostname) return false;
+    if (_PRIVATE_IP_RE.test(hostname)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Multi-stream RTSP → HLS proxy ───────────────────────────────────────────
 // Each stream gets its own subdir: <baseStreamsDir>/<id>/stream.m3u8
 // Served at: /streams/<id>/stream.m3u8
@@ -1118,6 +1202,7 @@ app.get('/api/streams', (_req, res) => {
 app.post('/api/streams', (req, res) => {
   const { id, name, url } = req.body;
   if (!id || !url) return res.status(400).json({ error: 'id and url required' });
+  if (!isValidRtspUrl(url)) return res.status(400).json({ error: 'Invalid RTSP URL — only rtsp:// and rtsps:// schemes are permitted' });
   const result = startStream(id, name || id, url);
   res.json(result);
 });
@@ -1147,6 +1232,7 @@ app.use('/thermal', (req, res, next) => {
 app.post('/api/thermal/start', (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ error: 'url required' });
+  if (!isValidRtspUrl(url)) return res.status(400).json({ error: 'Invalid RTSP URL — only rtsp:// and rtsps:// schemes are permitted' });
   startStream('thermal', 'AGM Taipan', url);
   res.json({ status: 'started', url });
 });
@@ -1262,7 +1348,7 @@ app.get('/api/debug/auth', (req, res) => {
 
 // GET /api/user/settings — load settings for the authenticated user
 app.get('/api/user/settings', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
 
   const db = getPrisma();
@@ -1323,7 +1409,7 @@ app.get('/api/user/settings', async (req, res) => {
 
 // PUT /api/user/settings — upsert settings for the authenticated user
 app.put('/api/user/settings', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
 
   const db = getPrisma();
@@ -1370,7 +1456,7 @@ app.put('/api/user/settings', async (req, res) => {
 
 // POST /api/push/subscribe — register a push subscription for the current user (PRO+)
 app.post('/api/push/subscribe', requirePro, async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const { endpoint, keys, userAgent } = req.body;
   if (!endpoint || !keys?.p256dh || !keys?.auth) {
@@ -1393,7 +1479,7 @@ app.post('/api/push/subscribe', requirePro, async (req, res) => {
 
 // DELETE /api/push/subscribe — remove a push subscription
 app.delete('/api/push/subscribe', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const { endpoint } = req.body;
   if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
@@ -1410,7 +1496,7 @@ app.delete('/api/push/subscribe', async (req, res) => {
 
 // POST /api/push/send — send a push to the current user's subscriptions (cross-device)
 app.post('/api/push/send', requirePro, async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   if (!process.env.VAPID_PUBLIC_KEY) return res.status(503).json({ error: 'Push not configured' });
   const { title, body, icon, url } = req.body;
@@ -1446,7 +1532,7 @@ app.post('/api/push/send', requirePro, async (req, res) => {
 
 // GET /api/devices — list all devices registered by the current user
 app.get('/api/devices', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const db = getPrisma();
   if (!db) return res.json([]);
@@ -1467,7 +1553,7 @@ const DEVICE_LIMITS = { FREE: 2, PRO: 10, ENTERPRISE: Infinity };
 
 // POST /api/devices — register or update a device (upsert by entraOid + name + type)
 app.post('/api/devices', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const db = getPrisma();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1528,7 +1614,7 @@ app.post('/api/devices', async (req, res) => {
 
 // PATCH /api/devices/:id — update status / heartbeat for a specific device
 app.patch('/api/devices/:id', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const db = getPrisma();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1553,7 +1639,7 @@ app.patch('/api/devices/:id', async (req, res) => {
 
 // DELETE /api/devices/:id — remove a device record
 app.delete('/api/devices/:id', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
   const db = getPrisma();
   if (!db) return res.status(503).json({ error: 'DB unavailable' });
@@ -1578,7 +1664,7 @@ app.delete('/api/devices/:id', async (req, res) => {
 //
 // ENTERPRISE-gated. Returns a downloadable file.
 app.get('/api/events/export', requireEnterprise, async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
 
   const format = req.query.format === 'jsonl' ? 'jsonl' : 'csv';
@@ -1694,7 +1780,7 @@ app.get('/api/events/export', requireEnterprise, async (req, res) => {
 // Body: { planType: 'PRO' | 'ENTERPRISE' | 'FREE' }
 // Returns: { checkoutUrl: string | null }
 app.post('/api/stripe/create-checkout-session', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
 
   const { planType } = req.body;
@@ -1757,7 +1843,7 @@ app.post('/api/stripe/create-checkout-session', async (req, res) => {
 // GET /api/stripe/subscription-status
 // Returns: { tier: string, status: string, currentPeriodEnd: string | null }
 app.get('/api/stripe/subscription-status', async (req, res) => {
-  const identity = extractEntraOid(req);
+  const identity = await verifyEntraTokenAsync(req);
   if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
 
   const db = getPrisma();

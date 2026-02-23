@@ -28,6 +28,9 @@ build/
 .DS_Store
 .DS_Store?
 ._*
+
+# HTTP Archive files — may contain Bearer tokens, cookies, and session material
+*.har
 .Spotlight-V100
 .Trashes
 ehthumbs.db
