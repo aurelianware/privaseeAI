@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
-import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square, CreditCard } from 'lucide-react';
+import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square, CreditCard, Monitor } from 'lucide-react';
 import { useAccount, useMsal } from '@azure/msal-react';
 import CameraStream from './components/CameraStream';
 import DetectionOverlay from './components/DetectionOverlay';
@@ -12,6 +12,10 @@ import CallPanel from './components/CallPanel';
 import PricingSection from './components/PricingSection';
 import SubscriptionStatus from './components/SubscriptionStatus';
 import { ProtectedRoute, UserProfileDropdown } from './components/Auth0Components';
+import { MultiDeviceDashboard } from './components/MultiDeviceDashboard';
+import { MultiDeviceEventService } from './utils/multiDeviceEvents';
+import { DeviceRegistry, Device } from './utils/deviceRegistry';
+import { DeviceDiscoveryService } from './utils/deviceDiscovery';
 import syncQueueService from './utils/syncQueue';
 import localStorageService, { SecurityEvent as StoredSecurityEvent } from './utils/storage';
 import { useUserSettings } from './hooks/useUserSettings';
@@ -66,10 +70,16 @@ function App() {
   // Refs to HLS <video> elements keyed by stream ID, for captureStream() sharing
   const hlsVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
+  // Multi-device service singletons — stable across renders
+  const eventServiceRef = useRef(new MultiDeviceEventService());
+  const deviceRegistryRef = useRef(new DeviceRegistry());
+  const discoveryServiceRef = useRef(new DeviceDiscoveryService());
+  const currentDeviceRef = useRef<Device | null>(null);
+
   const [isMonitoring, setIsMonitoring] = useState(true);
   const [detectedObjects, setDetectedObjects] = useState<DetectedObject[]>([]);
   const [securityEvents, setSecurityEvents] = useState<SecurityEvent[]>([]);
-  const [activeTab, setActiveTab] = useState<'live' | 'events' | 'cameras' | 'drone' | 'settings' | 'billing'>('live');
+  const [activeTab, setActiveTab] = useState<'live' | 'events' | 'cameras' | 'devices' | 'drone' | 'settings' | 'billing'>('live');
   const [settings, setSettings] = useState<Settings>({
     confidenceThreshold: 0.5,
     humanDetection: true,
@@ -192,6 +202,38 @@ function App() {
 
     initializeDatabase();
   }, []);
+
+  // Register this device in the multi-device registry once the DB is ready
+  useEffect(() => {
+    if (!databaseReady) return;
+    const ua = navigator.userAgent;
+    const detectType = (): Device['type'] => {
+      if (/iPhone|iPad/.test(ua)) return 'mobile-ios';
+      if (/Android/.test(ua)) return 'mobile-android';
+      if (/Mac/.test(navigator.platform)) return 'desktop-mac';
+      return 'desktop-windows';
+    };
+    deviceRegistryRef.current.registerDevice({
+      name: 'This Device',
+      type: detectType(),
+      platform: ua,
+      capabilities: {
+        hasCamera: true, hasAudio: true, canRecord: true, canStream: true,
+        canDetectMotion: true, canDetectObjects: true,
+        supportedResolutions: ['720p', '1080p'], supportedFrameRates: [30],
+        batteryPowered: /iPhone|iPad|Android/.test(ua), canPTZ: false,
+      },
+      status: 'online',
+      location: { name: 'Primary' },
+      network: { lastSeen: new Date() },
+      configuration: {
+        alertThreshold: 0.5, recordingEnabled: true,
+        motionDetectionEnabled: true, objectDetectionEnabled: true,
+        recordingDuration: 30, detectionInterval: 1000, uploadQuality: 'high',
+      },
+      metadata: { registeredAt: new Date(), lastUpdated: new Date() },
+    }).then(device => { currentDeviceRef.current = device; });
+  }, [databaseReady]);
 
   // Helper function to convert stored events to display format
   const convertStoredEvent = (storedEvent: StoredSecurityEvent): SecurityEvent => {
@@ -535,6 +577,7 @@ function App() {
               { id: 'live', label: 'Live View', icon: Camera },
               { id: 'events', label: 'Events', icon: AlertTriangle },
               { id: 'cameras', label: 'Cameras', icon: Video },
+              { id: 'devices', label: 'Devices', icon: Monitor },
               { id: 'drone', label: 'Drone', icon: Plane },
               { id: 'settings', label: 'Settings', icon: SettingsIcon },
               { id: 'billing', label: 'Billing', icon: CreditCard }
@@ -810,6 +853,14 @@ function App() {
               </div>
             )}
           </div>
+        )}
+
+        {activeTab === 'devices' && (
+          <MultiDeviceDashboard
+            eventService={eventServiceRef.current}
+            deviceRegistry={deviceRegistryRef.current}
+            discoveryService={discoveryServiceRef.current}
+          />
         )}
 
         {activeTab === 'drone' && (

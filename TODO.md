@@ -78,6 +78,15 @@ Work items are grouped by priority. Pick up any session by starting at the top o
 
 ## Lower Priority (post-launch)
 
+- [ ] **Android controller app for Autel EVO 640T Enterprise** — Native Kotlin app installed on the Smart Controller Enterprise (Android-based) to replace the current WebSocket relay stub with real Autel MSDK integration. The 640T's thermal camera (640px LWIR) is only accessible via the MSDK; the current TCP/WebSocket approach cannot surface thermal data at all.
+  Responsibilities:
+  1. Connect to the 640T via Autel MSDK (Java/Kotlin) — replaces placeholder methods in `src/drone/control/`
+  2. Stream RGB + thermal frames upstream to `server.js` via WebSocket (MJPEG or WebRTC)
+  3. Forward real-time telemetry to fill in the `DroneTelemetry` types currently populated with stubs
+  4. Accept mission commands from `MissionDashboard.tsx` to unblock `FlightOrchestrator` stubs
+  5. Optional: run TFLite person-detection on thermal frames on-device before relay
+  Gate full thermal features behind ENTERPRISE tier. Capacitor is not suitable here — native Android is required for deep MSDK access.
+
 - [ ] **Mobile apps** — Capacitor config exists but iOS/Android apps not built. Target after web SaaS is stable.
 
 - [ ] **SIEM / audit log export** — No export functionality. Enterprise customers will want SIEM-compatible
