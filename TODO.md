@@ -7,25 +7,22 @@ Work items are grouped by priority. Pick up any session by starting at the top o
 
 ## Critical (must fix before charging users)
 
-- [ ] **Wire Stripe price IDs** — Create products in [Stripe Dashboard](https://dashboard.stripe.com/products), then add the
-  price IDs to `.env.local`:
-  ```
-  STRIPE_PRO_PRICE_ID=price_...
-  STRIPE_ENTERPRISE_PRICE_ID=price_...
-  ```
-  Without these, `POST /api/stripe/create-checkout-session` returns a broken checkout URL.
-  See [docs/STRIPE_SETUP.md](docs/STRIPE_SETUP.md) for full walkthrough.
+- [x] **Wire Stripe price IDs** — Products created in Stripe Dashboard (test mode).
+  Price IDs confirmed active:
+  - `STRIPE_PRO_PRICE_ID=price_1T3DcSJu0wSGGF9nYTG57VUN` ($9.99/mo)
+  - `STRIPE_ENTERPRISE_PRICE_ID=price_1T3DfYJu0wSGGF9nfj526WUc` ($29.99/mo)
+  Both set in `.env.local`. Frontend uses server-side redirect checkout — no publishable key needed.
 
 - [x] **Fix `logEventToDb` stub** — `server.js:758` was `console.log` only.
   Now writes to a daily-rotating JSONL file under `logs/events-YYYY-MM-DD.jsonl`.
   Full DB persistence of webhook motion events requires schema work (see High Priority below).
 
-- [ ] **End-to-end Stripe billing test** — Run `stripe listen --forward-to localhost:3000/api/stripe/webhook`
-  and walk through: FREE → PRO checkout → webhook → `userSettings.subscriptionTier` updated → `requirePro`
-  middleware allows access. Cover these event types:
-  - `checkout.session.completed`
-  - `customer.subscription.updated`
-  - `customer.subscription.deleted`
+- [x] **End-to-end Stripe billing test** — Completed. PRO and ENTERPRISE checkouts verified.
+  All webhooks return 200. `userSettings.subscriptionTier` updated correctly in DB.
+  Two bugs found and fixed during testing:
+  1. `create-checkout-session`: DB lookup was inside the Stripe try/catch — a DB timeout blocked checkout entirely. Fixed by isolating the DB call in its own try/catch.
+  2. `server.js:13`: `const fetch = require('node-fetch')` shadowed the native global `fetch` with a non-callable object (node-fetch v3 ESM/CJS interop). Removed the import; native fetch used throughout.
+  Azure PostgreSQL firewall rule added for dev IP (74.244.177.89).
 
 - [ ] **Add startup env validation** — Server silently degrades when secrets are missing (Stripe, DB, encryption key).
   Add a startup check that logs a clear error table of missing required vars so misconfiguration is obvious in prod logs.

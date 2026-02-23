@@ -10,7 +10,6 @@ const fs = require('fs');
 const os = require('os');
 const { spawn } = require('child_process');
 const { randomUUID, createCipheriv, createDecipheriv, randomBytes, createHmac } = require('crypto');
-const fetch = require('node-fetch');
 const { default: AutelDroneSDK } = require('./src/services/AutelDroneSDK');
 const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrator');
 const { WebSocketServer } = require('ws');
@@ -1302,14 +1301,18 @@ app.post('/api/stripe/create-checkout-session', async (req, res) => {
 
   const baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
 
-  try {
-    // Reuse existing Stripe customer if we have one
-    let customerId;
-    if (db) {
+  // Reuse existing Stripe customer if we have one — DB failure is non-fatal here
+  let customerId;
+  if (db) {
+    try {
       const settings = await db.userSettings.findUnique({ where: { entraOid: identity.oid } });
       customerId = settings?.stripeCustomerId;
+    } catch (dbErr) {
+      console.warn('DB lookup failed during checkout (proceeding without customer ID):', dbErr.message);
     }
+  }
 
+  try {
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
