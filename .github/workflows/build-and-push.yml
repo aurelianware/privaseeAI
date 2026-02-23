@@ -41,6 +41,7 @@ jobs:
       run: npm run build
 
     - name: Azure Login with Managed Identity
+      if: github.event_name != 'pull_request'
       uses: azure/login@v2
       with:
         client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -48,10 +49,12 @@ jobs:
         subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
     - name: Login to Azure Container Registry
+      if: github.event_name != 'pull_request'
       run: |
         az acr login --name ${{ secrets.ACR_NAME }}
 
     - name: Build and Push Docker image
+      if: github.event_name != 'pull_request'
       run: |
         IMAGE_TAG=${{ github.sha }}
         FULL_IMAGE_NAME=${{ secrets.ACR_NAME }}.azurecr.io/${{ env.IMAGE_NAME }}:${IMAGE_TAG}
@@ -71,5 +74,5 @@ jobs:
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
     - name: Logout from Azure
-      if: always()
+      if: github.event_name != 'pull_request' && always()
       run: az logout
