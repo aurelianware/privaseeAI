@@ -787,7 +787,11 @@ function App() {
         )}
 
         {activeTab === 'events' && (
-          <EventsList events={securityEvents} />
+          <EventsList
+            events={securityEvents}
+            subscriptionTier={settings.subscriptionTier}
+            idToken={(msalAccount as any)?.idToken ?? undefined}
+          />
         )}
 
         {activeTab === 'cameras' && (

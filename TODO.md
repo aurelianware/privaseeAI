@@ -96,8 +96,11 @@ Work items are grouped by priority. Pick up any session by starting at the top o
 
 - [ ] **Mobile apps** — Capacitor config exists but iOS/Android apps not built. Target after web SaaS is stable.
 
-- [ ] **SIEM / audit log export** — No export functionality. Enterprise customers will want SIEM-compatible
-  (CEF/Syslog) or CSV export of the `Event` table. Add `/api/events/export` endpoint gated behind ENTERPRISE.
+- [x] **SIEM / audit log export** — `GET /api/events/export` added to server.js, ENTERPRISE-gated via
+  new `requireEnterprise` middleware. Query params: `format` (csv|jsonl), `since` (ISO date), `limit`
+  (max 10000). Returns Event table rows (scoped to current user) + SystemLog motion/detection entries
+  as a timestamped download. EventsList.tsx shows CSV and JSONL download buttons for ENTERPRISE users;
+  greyed-out lock icon for PRO/FREE. App.tsx passes `subscriptionTier` + `idToken` to EventsList.
 
 - [ ] **YOLO v8 server-side inference** — Current browser-based TensorFlow.js runs on client GPU.
   For headless / embedded deployments, add optional server-side YOLO via ONNX Runtime Node.js bindings.

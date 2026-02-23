@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock, AlertTriangle, Eye, Play, Image, X, ChevronDown, ChevronUp, Shield, Radio } from 'lucide-react';
+import { Clock, AlertTriangle, Eye, Play, Image, X, ChevronDown, ChevronUp, Shield, Radio, Download } from 'lucide-react';
 
 interface SecurityEvent {
   id: string;
@@ -22,6 +22,8 @@ interface SecurityEvent {
 
 interface EventsListProps {
   events: SecurityEvent[];
+  subscriptionTier?: string;  // 'FREE' | 'PRO' | 'ENTERPRISE'
+  idToken?: string;
 }
 
 // Sentinel brand colour tokens
@@ -46,7 +48,7 @@ const severityMeta: Record<string, { color: string; glow: string; label: string 
   low:      { color: S.green,  glow: 'rgba(0,255,136,0.25)',   label: 'LOW'      },
 };
 
-const EventsList: React.FC<EventsListProps> = ({ events }) => {
+const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idToken }) => {
   const [selectedMedia, setSelectedMedia] = useState<{
     type: 'image' | 'video';
     url: string;
@@ -56,6 +58,31 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
   const [expandedEvents, setExpandedEvents]   = useState<Set<string>>(new Set());
   const [mediaError,     setMediaError]        = useState<string | null>(null);
   const [now,            setNow]               = useState(() => Date.now());
+  const [exporting,      setExporting]         = useState(false);
+
+  const handleExport = async (format: 'csv' | 'jsonl') => {
+    if (subscriptionTier !== 'ENTERPRISE' || !idToken) return;
+    setExporting(true);
+    try {
+      const res = await fetch(`/api/events/export?format=${format}&limit=5000`, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      const disp = res.headers.get('Content-Disposition') ?? '';
+      const match = disp.match(/filename="([^"]+)"/);
+      a.href     = url;
+      a.download = match?.[1] ?? `privaseeai-export.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export failed:', err);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Live "time ago" ticker
   useEffect(() => {
@@ -146,16 +173,59 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
             Security Events
           </h2>
         </div>
-        <span style={{
-          fontSize: 12,
-          color: S.grayDim,
-          background: S.obsidian,
-          border: `1px solid ${S.border}`,
-          borderRadius: 20,
-          padding: '4px 12px',
-        }}>
-          {events.length} {events.length === 1 ? 'event' : 'events'}
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            fontSize: 12,
+            color: S.grayDim,
+            background: S.obsidian,
+            border: `1px solid ${S.border}`,
+            borderRadius: 20,
+            padding: '4px 12px',
+          }}>
+            {events.length} {events.length === 1 ? 'event' : 'events'}
+          </span>
+
+          {/* Export button — ENTERPRISE only */}
+          {subscriptionTier === 'ENTERPRISE' ? (
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['csv', 'jsonl'] as const).map(fmt => (
+                <button
+                  key={fmt}
+                  type="button"
+                  onClick={() => handleExport(fmt)}
+                  disabled={exporting}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 4,
+                    padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                    background: `${S.cyan}18`,
+                    border: `1px solid ${S.cyan}55`,
+                    color: exporting ? S.grayDim : S.cyan,
+                    cursor: exporting ? 'wait' : 'pointer',
+                    fontWeight: 600, letterSpacing: '0.04em',
+                    textTransform: 'uppercase',
+                    transition: 'background 0.15s',
+                  }}
+                  title={`Export as ${fmt.toUpperCase()}`}
+                >
+                  <Download style={{ width: 11, height: 11 }} />
+                  {exporting ? '…' : fmt}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <span
+              title="ENTERPRISE plan required for audit log export"
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                fontSize: 11, color: S.grayDim,
+                cursor: 'default', userSelect: 'none',
+              }}
+            >
+              <Download style={{ width: 11, height: 11 }} />
+              Export
+            </span>
+          )}
+        </div>
       </div>
 
       {/* Event cards */}
@@ -436,6 +506,8 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
                 <span style={{ fontSize: 11, color: '#444', marginLeft: 4 }}>{selectedMedia.mimeType}</span>
               </div>
               <button
+                type="button"
+                aria-label="Close media view"
                 onClick={closeMediaView}
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
