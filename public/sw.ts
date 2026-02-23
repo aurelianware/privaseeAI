@@ -153,4 +153,44 @@ async function syncPendingData(): Promise<void> {
   }
 }
 
+// ── Web Push handlers ────────────────────────────────────────────────────────
+
+// Receive a push message from the server and show a notification
+self.addEventListener('push', (event: any) => {
+  let data: { title?: string; body?: string; icon?: string; url?: string } = {};
+  try {
+    data = event.data?.json() ?? {};
+  } catch {
+    data = { body: event.data?.text() ?? '' };
+  }
+
+  const title = data.title ?? 'PrivaseeAI Alert';
+  const options = {
+    body: data.body ?? 'A security event was detected.',
+    icon: data.icon ?? '/pwa-192x192.png',
+    badge: '/pwa-64x64.png',
+    data: { url: data.url ?? '/' },
+    requireInteraction: true,
+  };
+
+  event.waitUntil((self as any).registration.showNotification(title, options));
+});
+
+// Notification clicked — focus or open the app window
+self.addEventListener('notificationclick', (event: any) => {
+  event.notification.close();
+  const url: string = event.notification.data?.url ?? '/';
+
+  event.waitUntil(
+    (self as any).clients
+      .matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clients: any[]) => {
+        const existing = clients.find((c: any) => c.url.includes(url));
+        return existing
+          ? existing.focus()
+          : (self as any).clients.openWindow(url);
+      })
+  );
+});
+
 export {};  // Make this a module

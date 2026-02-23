@@ -910,6 +910,8 @@ function App() {
           <SettingsPanel
             settings={settings}
             onSettingsChange={setSettings}
+            subscriptionTier={settings.subscriptionTier}
+            idToken={(msalAccount as any)?.idToken ?? undefined}
           />
         )}
 

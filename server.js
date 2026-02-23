@@ -13,6 +13,14 @@ const { randomUUID, createCipheriv, createDecipheriv, randomBytes, createHmac } 
 const { default: AutelDroneSDK } = require('./src/services/AutelDroneSDK');
 const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrator');
 const { WebSocketServer } = require('ws');
+const webpush = require('web-push');
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || 'mailto:admin@privaseeai.net',
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
+}
 
 // Prisma client — lazy init so server starts even without DB
 // Prisma 7 requires a driver adapter (dropped traditional library engine).
@@ -230,6 +238,53 @@ async function ensureDroneReady() {
 
 async function notifyUser(message, data) {
   await logEventToDb({ type: 'notify', message, data, at: new Date().toISOString() });
+  sendPushToAllSubscribed({ title: 'PrivaseeAI Alert', body: message, url: '/' }).catch(() => {});
+}
+
+/**
+ * Send a Web Push notification to every subscribed user who has notifications enabled.
+ * Silently removes stale subscriptions (410 Gone).
+ */
+async function sendPushToAllSubscribed(payload) {
+  if (!process.env.VAPID_PUBLIC_KEY) return; // VAPID not configured — skip
+  const db = getPrisma();
+  if (!db) return;
+
+  try {
+    // Get all subscriptions for users who have notifications enabled
+    const subscriptions = await db.pushSubscription.findMany();
+    if (subscriptions.length === 0) return;
+
+    // Filter to users with notifications = true
+    const oids = [...new Set(subscriptions.map(s => s.entraOid))];
+    const settings = await db.userSettings.findMany({
+      where: { entraOid: { in: oids }, notifications: true },
+      select: { entraOid: true },
+    });
+    const notifyOids = new Set(settings.map(s => s.entraOid));
+    const targets = subscriptions.filter(s => notifyOids.has(s.entraOid));
+
+    const pushPayload = JSON.stringify(payload);
+    await Promise.all(
+      targets.map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            pushPayload,
+          );
+        } catch (err) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            // Subscription expired — remove it
+            await db.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } }).catch(() => {});
+          } else {
+            console.warn('Push send failed:', err.message);
+          }
+        }
+      })
+    );
+  } catch (err) {
+    console.error('sendPushToAllSubscribed error:', err);
+  }
 }
 
 async function persistLog(entry) {
@@ -924,6 +979,16 @@ app.post('/api/webhook/motion', async (req, res) => {
       enqueueEvent(async () => {
         await triggerDroneLaunch(req.body, correlationId);
       });
+      // Push alert to all subscribed users
+      const loc = req.body.location
+        ? `${req.body.location.lat?.toFixed(4)}, ${req.body.location.lng?.toFixed(4)}`
+        : req.body.camera_id || 'unknown location';
+      sendPushToAllSubscribed({
+        title: `⚠️ Security Alert`,
+        body: `Threat level ${req.body.threat_level} detected at ${loc}`,
+        icon: '/pwa-192x192.png',
+        url: '/',
+      }).catch(() => {});
     }
 
     return res.status(acceptedStatus(shouldLaunch)).json({
@@ -1275,6 +1340,82 @@ app.put('/api/user/settings', async (req, res) => {
   } catch (err) {
     console.error('PUT /api/user/settings error:', err);
     res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// ─── Web Push endpoints ───────────────────────────────────────────────────────
+
+// POST /api/push/subscribe — register a push subscription for the current user (PRO+)
+app.post('/api/push/subscribe', requirePro, async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+  const { endpoint, keys, userAgent } = req.body;
+  if (!endpoint || !keys?.p256dh || !keys?.auth) {
+    return res.status(400).json({ error: 'Missing endpoint or keys' });
+  }
+  const db = getPrisma();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    await db.pushSubscription.upsert({
+      where: { endpoint },
+      create: { entraOid: identity.oid, endpoint, p256dh: keys.p256dh, auth: keys.auth, userAgent: userAgent || null },
+      update: { entraOid: identity.oid, p256dh: keys.p256dh, auth: keys.auth, userAgent: userAgent || null },
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('POST /api/push/subscribe error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// DELETE /api/push/subscribe — remove a push subscription
+app.delete('/api/push/subscribe', async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+  const { endpoint } = req.body;
+  if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
+  const db = getPrisma();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    await db.pushSubscription.deleteMany({ where: { endpoint, entraOid: identity.oid } });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('DELETE /api/push/subscribe error:', err);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
+
+// POST /api/push/send — send a push to the current user's subscriptions (cross-device)
+app.post('/api/push/send', requirePro, async (req, res) => {
+  const identity = extractEntraOid(req);
+  if (!identity?.oid) return res.status(401).json({ error: 'Unauthorized' });
+  if (!process.env.VAPID_PUBLIC_KEY) return res.status(503).json({ error: 'Push not configured' });
+  const { title, body, icon, url } = req.body;
+  const db = getPrisma();
+  if (!db) return res.status(503).json({ error: 'Database unavailable' });
+  try {
+    const subs = await db.pushSubscription.findMany({ where: { entraOid: identity.oid } });
+    const payload = JSON.stringify({ title, body, icon: icon || '/pwa-192x192.png', url: url || '/' });
+    let sent = 0;
+    await Promise.all(
+      subs.map(async (sub) => {
+        try {
+          await webpush.sendNotification(
+            { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+            payload,
+          );
+          sent++;
+        } catch (err) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            await db.pushSubscription.deleteMany({ where: { endpoint: sub.endpoint } }).catch(() => {});
+          }
+        }
+      })
+    );
+    return res.json({ ok: true, sent });
+  } catch (err) {
+    console.error('POST /api/push/send error:', err);
+    return res.status(500).json({ error: 'Internal error' });
   }
 });
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Save, RotateCcw, Bell, Shield, Eye, Zap } from 'lucide-react';
 import syncQueueService, { SyncStatus } from '../utils/syncQueue';
+import { isPushSubscribed, subscribeToPush, unsubscribeFromPush, isPushSupported } from '../utils/pushNotifications';
 
 interface Settings {
   confidenceThreshold: number;
@@ -19,10 +20,19 @@ interface Settings {
 interface SettingsPanelProps {
   settings: Settings;
   onSettingsChange: (settings: Settings) => void;
+  subscriptionTier?: string;  // 'FREE' | 'PRO' | 'ENTERPRISE'
+  idToken?: string;            // MSAL idToken for push API calls
 }
 
-const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSettingsChange }) => {
+const SettingsPanel: React.FC<SettingsPanelProps> = ({
+  settings,
+  onSettingsChange,
+  subscriptionTier,
+  idToken,
+}) => {
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
+  const [pushStatusMsg, setPushStatusMsg] = useState<{ text: string; color: 'green' | 'yellow' | 'red' } | null>(null);
   const [storageStats, setStorageStats] = useState<any>(null);
   const [isConfiguring, setIsConfiguring] = useState(false);
   const [cloudConfig, setCloudConfig] = useState({
@@ -69,7 +79,51 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSettingsChang
     }
   }, [settings.azureConfig]);
 
-  const handleChange = (key: keyof Settings, value: any) => {
+  // Check initial push subscription state
+  useEffect(() => {
+    isPushSubscribed().then(setPushSubscribed);
+  }, []);
+
+  const handleChange = async (key: keyof Settings, value: any) => {
+    // Special handling for notifications toggle — manage push subscription
+    if (key === 'notifications') {
+      const isPaid = subscriptionTier === 'PRO' || subscriptionTier === 'ENTERPRISE';
+      if (value === true) {
+        if (!isPushSupported()) {
+          setPushStatusMsg({ text: 'Push notifications not supported in this browser', color: 'red' });
+          return; // don't enable
+        }
+        if (!isPaid) {
+          setPushStatusMsg({ text: 'Push notifications require a PRO or ENTERPRISE plan', color: 'red' });
+          return; // don't enable for FREE tier
+        }
+        // Request permission + subscribe
+        const permission = await Notification.requestPermission();
+        if (permission !== 'granted') {
+          setPushStatusMsg({ text: 'Notification permission denied — allow in browser settings', color: 'red' });
+          return;
+        }
+        if (idToken) {
+          const ok = await subscribeToPush(idToken);
+          if (ok) {
+            setPushSubscribed(true);
+            setPushStatusMsg({ text: 'Active on this device', color: 'green' });
+          } else {
+            setPushStatusMsg({ text: 'Failed to register subscription — try again', color: 'red' });
+            return;
+          }
+        } else {
+          setPushStatusMsg({ text: 'Not signed in — reload and try again', color: 'red' });
+          return;
+        }
+      } else {
+        // Unsubscribe
+        if (idToken) await unsubscribeFromPush(idToken);
+        setPushSubscribed(false);
+        setPushStatusMsg(null);
+      }
+    }
+
     onSettingsChange({
       ...settings,
       [key]: value
@@ -173,11 +227,32 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSettingsChang
               onChange={(e) => handleChange('notifications', e.target.checked)}
               className="w-4 h-4 text-yellow-500 bg-gray-600 border-gray-500 rounded focus:ring-yellow-500"
             />
-            <div>
+            <div className="flex-1">
               <span className="font-medium">Push Notifications</span>
-              <p className="text-sm text-gray-400">Get alerted when security events occur</p>
+              <p className="text-sm text-gray-400">
+                {subscriptionTier === 'PRO' || subscriptionTier === 'ENTERPRISE'
+                  ? 'Get alerted on any device when a security event fires'
+                  : 'Requires PRO or ENTERPRISE plan'}
+              </p>
             </div>
           </label>
+
+          {/* Push subscription status */}
+          {pushStatusMsg && (
+            <p className={`text-xs ml-1 ${
+              pushStatusMsg.color === 'green' ? 'text-green-400'
+              : pushStatusMsg.color === 'yellow' ? 'text-yellow-400'
+              : 'text-red-400'
+            }`}>
+              {pushStatusMsg.color === 'green' ? '✓' : '⚠'} {pushStatusMsg.text}
+            </p>
+          )}
+          {!pushStatusMsg && settings.notifications && pushSubscribed && (
+            <p className="text-xs ml-1 text-green-400">✓ Active on this device</p>
+          )}
+          {!pushStatusMsg && settings.notifications && !pushSubscribed && (subscriptionTier === 'PRO' || subscriptionTier === 'ENTERPRISE') && (
+            <p className="text-xs ml-1 text-yellow-400">⚠ Not subscribed on this device — toggle off and on to subscribe</p>
+          )}
 
           {settings.notifications && (
             <div className="ml-7 pl-4 border-l-2 border-yellow-400 space-y-2">

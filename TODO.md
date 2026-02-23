@@ -62,9 +62,16 @@ Work items are grouped by priority. Pick up any session by starting at the top o
   for PRO/ENTERPRISE, upgrade prompt for FREE. Skip button on every step. App.tsx shows wizard
   after settings load completes so subscriptionTier is available.
 
-- [ ] **Push notifications** — Azure Notification Hubs integration not started.
-  Alert users on mobile when a high-severity detection event fires. Required for PRO value prop.
-  Reference: [Azure Notification Hubs docs](https://learn.microsoft.com/en-us/azure/notification-hubs/)
+- [x] **Push notifications** — Web Push (RFC 8030) implemented; no Azure dependency needed for web.
+  PRO/ENTERPRISE only. `PushSubscription` Prisma model + `prisma db push` applied.
+  `src/utils/pushNotifications.ts`: subscribe/unsubscribe helpers using VAPID + service worker.
+  `public/sw.ts`: push + notificationclick handlers added.
+  `server.js`: web-push VAPID init, `POST/DELETE /api/push/subscribe`, `POST /api/push/send`,
+  `sendPushToAllSubscribed()` helper called from `notifyUser()` and motion webhook (threat≥threshold).
+  `SettingsPanel.tsx`: notifications toggle triggers subscribe/unsubscribe; tier check blocks FREE users.
+  Ops: run `npx web-push generate-vapid-keys` and add VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY /
+  VAPID_SUBJECT / VITE_VAPID_PUBLIC_KEY to .env.local before using.
+  Note: Azure Notification Hubs remains relevant when native iOS/Android apps ship (Lower Priority).
 
 - [ ] **Drone orchestration completion** — `FlightOrchestrator.ts` `generateMission()` and `executeMission()` are stubs.
   `src/routes/webhookRoutes.ts:14` blocks: `"drone launch disabled (not implemented)"`.

@@ -176,6 +176,19 @@ model SystemLog {
   @@index([correlationId])
 }
 
+// Web Push subscriptions — one row per browser/device per user
+model PushSubscription {
+  id        String   @id @default(cuid())
+  entraOid  String                       // matches UserSettings.entraOid
+  endpoint  String   @unique             // unique per device/browser
+  p256dh    String                       // client public key (base64url)
+  auth      String                       // auth secret (base64url)
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entraOid])
+}
+
 // Per-user persisted settings (survives logout / new device)
 // Sensitive values (SAS token) are AES-256-GCM encrypted server-side.
 model UserSettings {
