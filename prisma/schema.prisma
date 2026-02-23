@@ -98,24 +98,36 @@ model VerificationToken {
 
 // Security app models
 model Device {
-  id           String   @id @default(cuid())
-  name         String
-  type         String   // raspberry-pi, mobile-ios, etc.
-  platform     String
-  status       String   @default("offline")
-  location     String
-  ipAddress    String?
-  macAddress   String?
-  
-  // Tenant isolation
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  lastSeen     DateTime @default(now())
-  
-  events       Event[]
+  id            String    @id @default(cuid())
+  name          String
+  type          String    // raspberry-pi, mobile-ios, mobile-android, desktop-mac, desktop-windows, ip-camera, etc.
+  platform      String
+  status        String    @default("offline")
+  location      String
+  ipAddress     String?
+  macAddress    String?
+
+  // Device capabilities and configuration (JSON strings)
+  capabilities  String?   // JSON: DeviceCapabilities
+  configuration String?   // JSON: DeviceConfiguration
+
+  // Heartbeat tracking
+  lastHeartbeat DateTime?
+
+  // MSAL identity — primary auth key (entraOid is stable across logins)
+  entraOid      String?
+
+  // NextAuth FK — optional; may not exist for MSAL-only users
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastSeen      DateTime  @default(now())
+
+  events        Event[]
+
+  @@index([entraOid])
 }
 
 // Security events with multi-tenant support

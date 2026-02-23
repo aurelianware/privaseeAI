@@ -67,10 +67,35 @@ export interface DeviceStatus {
   errorMessage?: string;
 }
 
+function defaultCapabilities(): DeviceCapabilities {
+  return {
+    hasCamera: false, hasAudio: false, canRecord: false, canStream: false,
+    canDetectMotion: false, canDetectObjects: false,
+    supportedResolutions: [], supportedFrameRates: [],
+    batteryPowered: false, canPTZ: false,
+  };
+}
+
+function defaultConfiguration(): DeviceConfiguration {
+  return {
+    alertThreshold: 0.5, recordingEnabled: false,
+    motionDetectionEnabled: true, objectDetectionEnabled: true,
+    recordingDuration: 30, detectionInterval: 1000, uploadQuality: 'medium',
+  };
+}
+
 // Device Registry Service
 export class DeviceRegistry {
   private devices: Map<string, Device> = new Map();
   private statusMap: Map<string, DeviceStatus> = new Map();
+  private idToken: string | null = null;
+  // Maps local generated ID → server-persisted ID
+  private serverIds: Map<string, string> = new Map();
+
+  /** Provide the MSAL idToken so API calls can be authenticated. */
+  setIdToken(token: string): void {
+    this.idToken = token;
+  }
 
   async registerDevice(device: Omit<Device, 'id'> & { metadata?: Partial<Device['metadata']> }): Promise<Device> {
     const deviceId = this.generateDeviceId(device);
@@ -83,7 +108,7 @@ export class DeviceRegistry {
         lastUpdated: new Date()
       }
     };
-    
+
     this.devices.set(deviceId, newDevice);
     await this.saveToStorage();
     return newDevice;
@@ -101,7 +126,7 @@ export class DeviceRegistry {
       ...existingStatus,
       ...status
     };
-    
+
     this.statusMap.set(deviceId, newStatus);
     await this.saveStatusToStorage();
   }
@@ -125,6 +150,54 @@ export class DeviceRegistry {
     });
   }
 
+  /**
+   * Load previously registered devices from the server into the in-memory registry.
+   * Call once on app startup after the MSAL token is available.
+   */
+  async loadFromServer(idToken: string): Promise<void> {
+    this.idToken = idToken;
+    try {
+      const res = await fetch('/api/devices', {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!res.ok) return;
+      const rows: Array<{
+        id: string; name: string; type: string; platform: string;
+        status: string; location: string; ipAddress: string | null;
+        macAddress: string | null; capabilities: string | null;
+        configuration: string | null; createdAt: string; updatedAt: string;
+        lastSeen: string;
+      }> = await res.json();
+
+      for (const row of rows) {
+        const device: Device = {
+          id: row.id,
+          name: row.name,
+          type: row.type as Device['type'],
+          platform: row.platform,
+          status: row.status as Device['status'],
+          location: { name: row.location },
+          network: {
+            ipAddress: row.ipAddress ?? undefined,
+            macAddress: row.macAddress ?? undefined,
+            lastSeen: new Date(row.lastSeen),
+          },
+          capabilities: row.capabilities ? JSON.parse(row.capabilities) : defaultCapabilities(),
+          configuration: row.configuration ? JSON.parse(row.configuration) : defaultConfiguration(),
+          metadata: {
+            registeredAt: new Date(row.createdAt),
+            lastUpdated: new Date(row.updatedAt),
+          },
+        };
+        this.devices.set(row.id, device);
+        // Server ID is the same as the local ID for server-loaded devices
+        this.serverIds.set(row.id, row.id);
+      }
+    } catch {
+      // Network unavailable or dev mode — registry stays in-memory only
+    }
+  }
+
   private generateDeviceId(device: Partial<Device>): string {
     const prefix = device.type?.slice(0, 3).toUpperCase() || 'DEV';
     const timestamp = Date.now().toString(36);
@@ -133,11 +206,63 @@ export class DeviceRegistry {
   }
 
   private async saveToStorage(): Promise<void> {
-    // Save to IndexedDB or cloud storage
-    // Implementation depends on your storage strategy
+    if (!this.idToken) return;
+    for (const [localId, device] of this.devices.entries()) {
+      if (this.serverIds.has(localId)) continue; // already persisted
+      try {
+        const res = await fetch('/api/devices', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.idToken}`,
+          },
+          body: JSON.stringify({
+            name: device.name,
+            type: device.type,
+            platform: device.platform,
+            status: device.status,
+            location: device.location.name,
+            ipAddress: device.network.ipAddress,
+            macAddress: device.network.macAddress,
+            capabilities: device.capabilities,
+            configuration: device.configuration,
+          }),
+        });
+        if (res.ok) {
+          const row = await res.json();
+          // Map local ID → server ID; also add device under server ID
+          this.serverIds.set(localId, row.id);
+          if (localId !== row.id) {
+            // Replace in-memory entry with stable server ID
+            this.devices.delete(localId);
+            this.devices.set(row.id, { ...device, id: row.id });
+          }
+        }
+      } catch {
+        // Network unavailable — will retry on next save
+      }
+    }
   }
 
   private async saveStatusToStorage(): Promise<void> {
-    // Save device status updates
+    if (!this.idToken) return;
+    for (const [deviceId, status] of this.statusMap.entries()) {
+      const serverId = this.serverIds.get(deviceId) ?? deviceId;
+      try {
+        await fetch(`/api/devices/${serverId}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.idToken}`,
+          },
+          body: JSON.stringify({
+            status: status.status,
+            lastHeartbeat: status.lastHeartbeat,
+          }),
+        });
+      } catch {
+        // Network unavailable — status update is best-effort
+      }
+    }
   }
 }

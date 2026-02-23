@@ -206,37 +206,49 @@ function App() {
     initializeDatabase();
   }, []);
 
-  // Register this device in the multi-device registry once the DB is ready
+  // Load persisted devices from the server, then register this device
   useEffect(() => {
-    if (!databaseReady) return;
-    const ua = navigator.userAgent;
-    const detectType = (): Device['type'] => {
-      if (/iPhone|iPad/.test(ua)) return 'mobile-ios';
-      if (/Android/.test(ua)) return 'mobile-android';
-      if (/Mac/.test(navigator.platform)) return 'desktop-mac';
-      return 'desktop-windows';
+    const token = (msalAccount as any)?.idToken as string | undefined;
+    if (!token || !databaseReady) return;
+
+    const run = async () => {
+      // 1. Restore previously registered devices from the DB
+      await deviceRegistryRef.current.loadFromServer(token);
+
+      // 2. Register (or re-register) this device for this session
+      const ua = navigator.userAgent;
+      const detectType = (): Device['type'] => {
+        if (/iPhone|iPad/.test(ua)) return 'mobile-ios';
+        if (/Android/.test(ua)) return 'mobile-android';
+        if (/Mac/.test((navigator as any).userAgentData?.platform ?? ua)) return 'desktop-mac';
+        return 'desktop-windows';
+      };
+      deviceRegistryRef.current.setIdToken(token);
+      const device = await deviceRegistryRef.current.registerDevice({
+        name: 'This Device',
+        type: detectType(),
+        platform: ua,
+        capabilities: {
+          hasCamera: true, hasAudio: true, canRecord: true, canStream: true,
+          canDetectMotion: true, canDetectObjects: true,
+          supportedResolutions: ['720p', '1080p'], supportedFrameRates: [30],
+          batteryPowered: /iPhone|iPad|Android/.test(ua), canPTZ: false,
+        },
+        status: 'online',
+        location: { name: 'Primary' },
+        network: { lastSeen: new Date() },
+        configuration: {
+          alertThreshold: 0.5, recordingEnabled: true,
+          motionDetectionEnabled: true, objectDetectionEnabled: true,
+          recordingDuration: 30, detectionInterval: 1000, uploadQuality: 'high',
+        },
+        metadata: { registeredAt: new Date(), lastUpdated: new Date() },
+      });
+      currentDeviceRef.current = device;
     };
-    deviceRegistryRef.current.registerDevice({
-      name: 'This Device',
-      type: detectType(),
-      platform: ua,
-      capabilities: {
-        hasCamera: true, hasAudio: true, canRecord: true, canStream: true,
-        canDetectMotion: true, canDetectObjects: true,
-        supportedResolutions: ['720p', '1080p'], supportedFrameRates: [30],
-        batteryPowered: /iPhone|iPad|Android/.test(ua), canPTZ: false,
-      },
-      status: 'online',
-      location: { name: 'Primary' },
-      network: { lastSeen: new Date() },
-      configuration: {
-        alertThreshold: 0.5, recordingEnabled: true,
-        motionDetectionEnabled: true, objectDetectionEnabled: true,
-        recordingDuration: 30, detectionInterval: 1000, uploadQuality: 'high',
-      },
-      metadata: { registeredAt: new Date(), lastUpdated: new Date() },
-    }).then(device => { currentDeviceRef.current = device; });
-  }, [databaseReady]);
+
+    run().catch(console.error);
+  }, [msalAccount, databaseReady]);
 
   // Helper function to convert stored events to display format
   const convertStoredEvent = (storedEvent: StoredSecurityEvent): SecurityEvent => {
