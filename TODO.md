@@ -37,9 +37,11 @@ Work items are grouped by priority. Pick up any session by starting at the top o
   Opted for SystemLog over modifying `Event` (which requires tenantId/userId) — keeps webhook path simple.
   Schema applied via `prisma db push`. Verified insert in production DB.
 
-- [ ] **Fix syncQueue status display** — `src/utils/syncQueue.ts:352-355` has TODOs for tracking sync time,
-  pending item count, and error counts. PRO users see no feedback on whether cloud sync is working.
-  Implement the counters and expose them via a `/api/sync/status` endpoint.
+- [x] **Fix syncQueue status display** — Implemented counters in `SyncQueueService`:
+  `lastSyncTime`, `sessionTotalSynced`, `lastKnownPending`, `recentErrors` (last 5).
+  All four fields now populated during `processSyncQueue()` and returned from `getSyncStatus()`.
+  `SettingsPanel.tsx` renders a status line below the sync buttons: "Last synced: X min ago · N uploaded · N pending"
+  plus a red error badge with tooltip when sync failures occur.
 
 - [ ] **Wire YOLO v8 into detection pipeline** — `src/utils/yolo.ts` is a stub. YOLO v8 was intended as the
   higher-accuracy PRO-tier detection upgrade over COCO-SSD. Steps:

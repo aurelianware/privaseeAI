@@ -261,21 +261,41 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({ settings, onSettingsChang
 
           {/* Manual Sync Button */}
           {settings.cloudSync && (
-            <div className="flex space-x-2">
-              <button
-                onClick={() => syncQueueService.syncNow()}
-                disabled={syncStatus?.isSyncing}
-                className="flex-1 bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {syncStatus?.isSyncing ? '🔄 Syncing...' : '🔄 Sync Now'}
-              </button>
-              
-              <button
-                onClick={() => syncQueueService.downloadFromCloud()}
-                className="flex-1 bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition-colors"
-              >
-                ⬇️ Download from Cloud
-              </button>
+            <div className="space-y-2">
+              <div className="flex space-x-2">
+                <button
+                  type="button"
+                  onClick={() => syncQueueService.syncNow()}
+                  disabled={syncStatus?.isSyncing}
+                  className="flex-1 bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {syncStatus?.isSyncing ? '🔄 Syncing...' : '🔄 Sync Now'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => syncQueueService.downloadFromCloud()}
+                  className="flex-1 bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 transition-colors"
+                >
+                  ⬇️ Download from Cloud
+                </button>
+              </div>
+
+              {/* Sync status line */}
+              <div className="flex items-center justify-between text-xs text-gray-400 px-1">
+                <span>
+                  {syncStatus?.lastSyncTime
+                    ? `Last synced: ${Math.round((Date.now() - syncStatus.lastSyncTime.getTime()) / 60000)} min ago`
+                    : 'Not synced this session'}
+                  {syncStatus && syncStatus.totalSynced > 0 && ` · ${syncStatus.totalSynced} uploaded`}
+                  {syncStatus && syncStatus.pendingItems > 0 && ` · ${syncStatus.pendingItems} pending`}
+                </span>
+                {syncStatus && syncStatus.errors.length > 0 && (
+                  <span className="text-red-400" title={syncStatus.errors.join('\n')}>
+                    ⚠ {syncStatus.errors.length} error{syncStatus.errors.length > 1 ? 's' : ''}
+                  </span>
+                )}
+              </div>
             </div>
           )}
 

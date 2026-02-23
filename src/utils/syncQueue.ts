@@ -24,6 +24,13 @@ class SyncQueueService {
   private readonly SYNC_INTERVAL_MS = 30000; // 30 seconds
   private readonly MAX_RETRIES = 3;
 
+  // Tracked counters for status display
+  private lastSyncTime: Date | undefined = undefined;
+  private sessionTotalSynced = 0;
+  private lastKnownPending = 0;
+  private recentErrors: string[] = [];
+  private readonly MAX_RECENT_ERRORS = 5;
+
   // Event handlers
   private onSyncStatusChange?: (status: SyncStatus) => void;
   private onSyncProgress?: (progress: SyncProgress) => void;
@@ -132,6 +139,7 @@ class SyncQueueService {
     const startTime = Date.now();
     let totalSynced = 0;
     const errors: string[] = [];
+    this.lastKnownPending = 0;
 
     try {
       // Get pending sync items
@@ -141,6 +149,8 @@ class SyncQueueService {
         console.log('✅ No items to sync');
         return this.getSyncStatus();
       }
+
+      this.lastKnownPending = syncItems.length;
 
       console.log(`🔄 Processing ${syncItems.length} sync items`);
       
@@ -170,22 +180,26 @@ class SyncQueueService {
           if (success) {
             // Remove from queue and mark as synced
             await localStorageService.removeSyncQueueItem(item.id);
-            
+
             if (item.type === 'event') {
               await localStorageService.markEventSynced(item.eventId);
             }
-            
+
             totalSynced++;
+            this.lastKnownPending = Math.max(0, this.lastKnownPending - 1);
             console.log(`✅ Synced ${item.type}: ${item.eventId}`);
           } else {
             // Increment retry count
             item.attempts++;
             item.lastAttempt = new Date();
-            
+
             if (item.attempts >= this.MAX_RETRIES) {
               // Remove from queue after max retries
               await localStorageService.removeSyncQueueItem(item.id);
-              errors.push(`Failed to sync ${item.type}: ${item.eventId} after ${this.MAX_RETRIES} attempts`);
+              const errMsg = `Failed to sync ${item.type}: ${item.eventId} after ${this.MAX_RETRIES} attempts`;
+              errors.push(errMsg);
+              this.recentErrors = [errMsg, ...this.recentErrors].slice(0, this.MAX_RECENT_ERRORS);
+              this.lastKnownPending = Math.max(0, this.lastKnownPending - 1);
               console.error(`❌ Giving up on ${item.type}: ${item.eventId}`);
             } else {
               // Update with new attempt count
@@ -215,6 +229,10 @@ class SyncQueueService {
 
       const syncTime = Date.now() - startTime;
       console.log(`🔄 Sync completed: ${totalSynced}/${syncItems.length} items in ${syncTime}ms`);
+      if (totalSynced > 0) {
+        this.lastSyncTime = new Date();
+        this.sessionTotalSynced += totalSynced;
+      }
 
     } catch (error) {
       const errorMsg = `Sync process failed: ${error}`;
@@ -349,10 +367,10 @@ class SyncQueueService {
     return {
       isOnline: navigator.onLine,
       isSyncing: this.isProcessing,
-      lastSyncTime: new Date(), // TODO: Track actual last sync time
-      pendingItems: 0, // TODO: Get from storage
-      totalSynced: 0, // TODO: Track total synced items
-      errors: [], // TODO: Track recent errors
+      lastSyncTime: this.lastSyncTime,
+      pendingItems: this.lastKnownPending,
+      totalSynced: this.sessionTotalSynced,
+      errors: this.recentErrors,
     };
   }
 
