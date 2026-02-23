@@ -53,6 +53,7 @@ interface Settings {
   notifications: boolean;
   cloudSync: boolean;
   managedContainer?: boolean;
+  subscriptionTier?: string; // 'FREE' | 'PRO' | 'ENTERPRISE'
   azureConfig?: {
     accountName: string;
     containerName: string;
@@ -315,6 +316,7 @@ function App() {
             ...(remote.confidenceThreshold !== undefined && { confidenceThreshold: remote.confidenceThreshold }),
             ...(remote.cloudSync !== undefined && { cloudSync: remote.cloudSync }),
             ...(remote.managedContainer !== undefined && { managedContainer: remote.managedContainer }),
+            ...(remote.subscriptionTier !== undefined && { subscriptionTier: remote.subscriptionTier }),
             azureConfig: (remote.azureAccountName && remote.azureContainerName && remote.sasToken)
               ? { accountName: remote.azureAccountName, containerName: remote.azureContainerName, sasToken: remote.sasToken }
               : prev.azureConfig
@@ -622,6 +624,7 @@ function App() {
                   onDetection={handleDetection}
                   isActive={true}
                   onStreamReady={setCameraStream}
+                  subscriptionTier={settings.subscriptionTier}
                 />
                 
                 {/* Detection Overlays */}

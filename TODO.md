@@ -43,11 +43,12 @@ Work items are grouped by priority. Pick up any session by starting at the top o
   `SettingsPanel.tsx` renders a status line below the sync buttons: "Last synced: X min ago · N uploaded · N pending"
   plus a red error badge with tooltip when sync failures occur.
 
-- [ ] **Wire YOLO v8 into detection pipeline** — `src/utils/yolo.ts` is a stub. YOLO v8 was intended as the
-  higher-accuracy PRO-tier detection upgrade over COCO-SSD. Steps:
-  1. Finish the YOLO v8 ONNX/TFLite loader in `yolo.ts`
-  2. Add a feature-gated toggle in `CameraStream.tsx` (PRO+ only)
-  3. Document model download / hosting in Azure Blob
+- [x] **Wire YOLO v8 into detection pipeline** — `src/utils/yolo.ts` fully rewritten with dual-backend
+  `YOLOModel` class. `loadModel(useYoloV8)` tries `tf.loadGraphModel` from Azure Blob first, falls back
+  to COCO-SSD on failure. Full YOLOv8n inference: 640×640 resize → normalize → [1,84,8400] parse → NMS.
+  `CameraStream.tsx` gates `useYoloV8 = tier === 'PRO' || 'ENTERPRISE'`; badge shows "YOLOv8 PRO" (purple)
+  or "COCO-SSD" (blue). `App.tsx` merges `subscriptionTier` from server settings and passes it as prop.
+  One-time ops step still required: upload `yolov8n_web_model/` to Azure Blob (see yolo.ts header comments).
 
 - [x] **Real `logEventToDb` notifications via DB** — Resolved by SystemLog implementation above.
 

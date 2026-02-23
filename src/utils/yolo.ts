@@ -1,112 +1,245 @@
-// Object Detection Model Utilities using COCO-SSD
+// Detection backends:
+//   FREE tier  → COCO-SSD (MobileNetV2, runs in-browser via TF.js)
+//   PRO+ tier  → YOLOv8n TF.js GraphModel (higher accuracy, ~6 MB)
+//
+// YOLOv8n model setup (one-time, done by ops):
+//   1. pip install ultralytics
+//   2. yolo export model=yolov8n.pt format=tfjs
+//   3. Upload the generated web_model/ folder to Azure Blob:
+//      az storage blob upload-batch -s yolov8n_web_model -d models/yolov8n_web_model \
+//        --account-name privaseeaistorage
+//   4. Enable CORS on the storage account for https://privaseeai.net
+//
+// The model URL below is the canonical location; the loader gracefully falls back
+// to COCO-SSD if the model is unreachable (e.g. dev without the file uploaded).
+
 import * as cocoSsd from '@tensorflow-models/coco-ssd';
+import * as tf from '@tensorflow/tfjs';
 
 export interface YOLODetection {
-  bbox: [number, number, number, number]; // [x, y, width, height]
+  bbox: [number, number, number, number]; // [x, y, width, height] normalised 0-1
   score: number;
   classId: number;
   className: string;
 }
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const YOLOV8_MODEL_URL =
+  'https://privaseeaistorage.blob.core.windows.net/models/yolov8n_web_model/model.json';
+const YOLOV8_INPUT_SIZE = 640;
+const YOLOV8_CONF_THRESHOLD = 0.35;
+const YOLOV8_IOU_THRESHOLD  = 0.45;
+const YOLOV8_MAX_DETECTIONS = 50;
+
+// Standard COCO 80-class labels (same order as YOLOv8 head output)
+const COCO_CLASSES = [
+  'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
+  'traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat',
+  'dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack',
+  'umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball',
+  'kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket',
+  'bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple',
+  'sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair',
+  'couch','potted plant','bed','dining table','toilet','tv','laptop','mouse',
+  'remote','keyboard','cell phone','microwave','oven','toaster','sink',
+  'refrigerator','book','clock','vase','scissors','teddy bear','hair drier',
+  'toothbrush',
+];
+
+// ─── YOLOModel class ──────────────────────────────────────────────────────────
+
 export class YOLOModel {
-  private model: cocoSsd.ObjectDetection | null = null;
-  
-  async loadModel(): Promise<boolean> {
+  private cocoModel: cocoSsd.ObjectDetection | null = null;
+  private graphModel: tf.GraphModel | null = null;
+  private usingYoloV8 = false;
+
+  /** Returns which backend is active */
+  get backend(): 'yolov8' | 'coco-ssd' | 'none' {
+    if (this.usingYoloV8 && this.graphModel) return 'yolov8';
+    if (this.cocoModel) return 'coco-ssd';
+    return 'none';
+  }
+
+  /**
+   * Load the detection model.
+   * @param useYoloV8 If true, attempt to load the YOLOv8n TF.js model from
+   *                  Azure Blob first; falls back to COCO-SSD on failure.
+   */
+  async loadModel(useYoloV8 = false): Promise<boolean> {
+    if (useYoloV8) {
+      try {
+        console.log('🔭 Loading YOLOv8n model from Azure Blob…');
+        this.graphModel = await tf.loadGraphModel(YOLOV8_MODEL_URL);
+        this.usingYoloV8 = true;
+        console.log('✅ YOLOv8n loaded — PRO detection active');
+        return true;
+      } catch (err) {
+        console.warn('⚠️ YOLOv8n unavailable, falling back to COCO-SSD:', (err as Error).message);
+      }
+    }
+
     try {
-      console.log('Loading COCO-SSD model...');
-      this.model = await cocoSsd.load({
-        base: 'mobilenet_v2' // Faster and more reliable than YOLO
-      });
-      console.log('COCO-SSD model loaded successfully');
+      console.log('Loading COCO-SSD model…');
+      this.cocoModel = await cocoSsd.load({ base: 'mobilenet_v2' });
+      this.usingYoloV8 = false;
+      console.log('✅ COCO-SSD model loaded');
       return true;
-    } catch (error) {
-      console.error('Failed to load COCO-SSD model:', error);
+    } catch (err) {
+      console.error('Failed to load COCO-SSD model:', err);
       return false;
     }
   }
 
-  async detect(imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement): Promise<YOLODetection[]> {
-    if (!this.model) {
-      // Fallback to mock detection for testing media capture
-      console.log('⚠️ Model not loaded, using mock detection for testing');
-      return this.mockDetection();
+  async detect(
+    imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement
+  ): Promise<YOLODetection[]> {
+    if (this.usingYoloV8 && this.graphModel) {
+      return this.detectYoloV8(imageElement);
     }
-
-    try {
-      // Use COCO-SSD detect method
-      const predictions = await this.model.detect(imageElement);
-
-      // COCO-SSD runs on the video's intrinsic pixel data (videoWidth × videoHeight).
-      // For HTMLVideoElement, .width/.height return the CSS layout dimensions which can
-      // differ from the actual frame resolution, causing bounding boxes to be offset.
-      // Always normalise against the intrinsic dimensions.
-      const imgW = (imageElement instanceof HTMLVideoElement)
-        ? (imageElement.videoWidth  || imageElement.width)
-        : imageElement.width;
-      const imgH = (imageElement instanceof HTMLVideoElement)
-        ? (imageElement.videoHeight || imageElement.height)
-        : imageElement.height;
-
-      // Convert COCO-SSD predictions to our format
-      const detections: YOLODetection[] = predictions.map((prediction, index) => ({
-        bbox: [
-          prediction.bbox[0] / imgW,  // x
-          prediction.bbox[1] / imgH,  // y
-          prediction.bbox[2] / imgW,  // width
-          prediction.bbox[3] / imgH   // height
-        ],
-        score: prediction.score,
-        classId: index, // COCO-SSD doesn't provide class ID directly
-        className: prediction.class
-      }));
-      
-      return detections;
-    } catch (error) {
-      console.error('Detection error:', error);
-      return this.mockDetection();
+    if (this.cocoModel) {
+      return this.detectCocoSsd(imageElement);
     }
+    return this.mockDetection();
   }
 
-  // Mock detection for testing when model fails to load
+  // ─── YOLOv8 backend ─────────────────────────────────────────────────────────
+
+  private async detectYoloV8(
+    imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement
+  ): Promise<YOLODetection[]> {
+    const imgW = (imageElement instanceof HTMLVideoElement)
+      ? (imageElement.videoWidth  || imageElement.width)
+      : imageElement.width;
+    const imgH = (imageElement instanceof HTMLVideoElement)
+      ? (imageElement.videoHeight || imageElement.height)
+      : imageElement.height;
+
+    // Preprocess: resize to 640×640 and normalise to [0, 1]
+    const input = tf.tidy(() => {
+      const img = tf.browser.fromPixels(imageElement);
+      const resized = tf.image.resizeBilinear(img, [YOLOV8_INPUT_SIZE, YOLOV8_INPUT_SIZE]);
+      const normalised = resized.div(255.0);
+      return normalised.expandDims(0); // [1, 640, 640, 3]
+    });
+
+    let detections: YOLODetection[] = [];
+
+    try {
+      // YOLOv8 TF.js export produces output shape [1, 84, 8400]
+      // 84 = 4 (cx,cy,w,h) + 80 (class scores)
+      const rawOutput = await this.graphModel!.executeAsync(input) as tf.Tensor;
+      const output = rawOutput.squeeze([0]); // [84, 8400]
+
+      // Transpose to [8400, 84] for easier slicing
+      const transposed = output.transpose(); // [8400, 84]
+
+      const boxesCxcywh = transposed.slice([0, 0], [-1, 4]);  // [8400, 4]
+      const classScores  = transposed.slice([0, 4], [-1, -1]); // [8400, 80]
+
+      const maxScores  = classScores.max(1);    // [8400]
+      const classIds   = classScores.argMax(1); // [8400]
+
+      // Convert cx,cy,w,h → y1,x1,y2,x2 (normalised) for NMS
+      const [cx, cy, w, h] = tf.split(boxesCxcywh, 4, 1);
+      const x1 = cx.sub(w.div(2));
+      const y1 = cy.sub(h.div(2));
+      const x2 = cx.add(w.div(2));
+      const y2 = cy.add(h.div(2));
+      // tf.image.nonMaxSuppression expects [y1, x1, y2, x2]
+      const yx1x2 = tf.concat([y1, x1, y2, x2], 1); // [8400, 4]
+
+      const scoresArr  = await maxScores.array() as number[];
+      const classArr   = await classIds.array() as number[];
+      const boxesArr   = await yx1x2.array() as number[][];
+
+      const nmsBoxes  = tf.tensor2d(boxesArr);
+      const nmsScores = tf.tensor1d(scoresArr);
+
+      const selected = await tf.image.nonMaxSuppressionAsync(
+        nmsBoxes, nmsScores, YOLOV8_MAX_DETECTIONS,
+        YOLOV8_IOU_THRESHOLD, YOLOV8_CONF_THRESHOLD
+      );
+      const selectedIndices = await selected.array() as number[];
+
+      // Scale boxes back to image coordinates, then normalise
+      detections = selectedIndices.map(i => {
+        const [y1n, x1n, y2n, x2n] = boxesArr[i];
+        // YOLOv8 outputs are relative to the 640×640 input; already 0-1 normalised
+        const bx = Math.max(0, x1n);
+        const by = Math.max(0, y1n);
+        const bw = Math.min(1, x2n) - bx;
+        const bh = Math.min(1, y2n) - by;
+        return {
+          bbox: [bx, by, bw, bh] as [number, number, number, number],
+          score: scoresArr[i],
+          classId: classArr[i],
+          className: COCO_CLASSES[classArr[i]] ?? 'unknown',
+        };
+      });
+
+      // Cleanup tensors
+      tf.dispose([rawOutput, output, transposed, boxesCxcywh, classScores,
+                  maxScores, classIds, cx, cy, w, h, x1, y1, x2, y2,
+                  yx1x2, nmsBoxes, nmsScores, selected]);
+
+    } catch (err) {
+      console.error('YOLOv8 inference error:', err);
+    }
+
+    tf.dispose(input);
+    void imgW; void imgH; // suppress unused-var lint (kept for future letterbox calc)
+    return detections;
+  }
+
+  // ─── COCO-SSD backend ────────────────────────────────────────────────────────
+
+  private async detectCocoSsd(
+    imageElement: HTMLImageElement | HTMLVideoElement | HTMLCanvasElement
+  ): Promise<YOLODetection[]> {
+    const imgW = (imageElement instanceof HTMLVideoElement)
+      ? (imageElement.videoWidth  || imageElement.width)
+      : imageElement.width;
+    const imgH = (imageElement instanceof HTMLVideoElement)
+      ? (imageElement.videoHeight || imageElement.height)
+      : imageElement.height;
+
+    const predictions = await this.cocoModel!.detect(imageElement);
+
+    return predictions.map((p, i) => ({
+      bbox: [
+        p.bbox[0] / imgW,
+        p.bbox[1] / imgH,
+        p.bbox[2] / imgW,
+        p.bbox[3] / imgH,
+      ] as [number, number, number, number],
+      score: p.score,
+      classId: i,
+      className: p.class,
+    }));
+  }
+
+  // ─── Mock fallback ───────────────────────────────────────────────────────────
+
   private mockDetection(): YOLODetection[] {
-    // Generate a random detection every 10 seconds for testing
-    const now = Date.now();
-    if (now % 10000 < 100) { // Trigger every ~10 seconds
-      console.log('🎭 Mock detection: person detected (for testing media capture)');
+    if (Date.now() % 10000 < 100) {
       return [{
-        bbox: [0.3, 0.3, 0.4, 0.4], // Center of frame
-        score: 0.85, // High confidence
+        bbox: [0.3, 0.3, 0.4, 0.4],
+        score: 0.85,
         classId: 0,
-        className: 'person'
+        className: 'person',
       }];
     }
     return [];
   }
 
   dispose(): void {
-    if (this.model) {
-      // COCO-SSD models don't have a dispose method
-      this.model = null;
+    if (this.graphModel) {
+      this.graphModel.dispose();
+      this.graphModel = null;
     }
+    this.cocoModel = null;
   }
 }
-
-// Model download utilities
-export const downloadYOLOModel = async (modelName: string): Promise<string> => {
-  const modelUrls = {
-    'yolov5s': 'https://github.com/ultralytics/yolov5/releases/download/v7.0/yolov5s_web_model.zip',
-    'yolov8s': 'https://github.com/ultralytics/ultralytics/releases/download/v8.0.0/yolov8s_web_model.zip',
-    // Add more model URLs as needed
-  };
-  
-  const url = modelUrls[modelName as keyof typeof modelUrls];
-  if (!url) {
-    throw new Error(`Model ${modelName} not found`);
-  }
-  
-  // In a real implementation, you'd download and extract the model
-  // For now, return the local path where you'd place the model
-  return `./models/${modelName}/model.json`;
-};
 
 export default YOLOModel;

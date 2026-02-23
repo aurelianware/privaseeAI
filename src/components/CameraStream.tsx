@@ -16,9 +16,10 @@ interface CameraStreamProps {
   onDetection: (objects: DetectedObject[]) => void;
   isActive: boolean;
   onStreamReady?: (stream: MediaStream | null) => void;
+  subscriptionTier?: string; // 'FREE' | 'PRO' | 'ENTERPRISE' — gates YOLOv8
 }
 
-const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onStreamReady }) => {
+const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onStreamReady, subscriptionTier }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -28,6 +29,7 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
   const recordedChunksRef = useRef<Blob[]>([]);
   
   const [isModelLoading, setIsModelLoading] = useState(false);
+  const [modelBackend, setModelBackend] = useState<'yolov8' | 'coco-ssd' | 'none'>('none');
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string>('');
   const [requestingCamera, setRequestingCamera] = useState(false);
@@ -45,18 +47,17 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         await tf.ready();
         console.log('TensorFlow.js backend:', tf.getBackend());
 
-        // Initialize YOLO model (now using COCO-SSD)
         yoloModelRef.current = new YOLOModel();
-        
-        // Load COCO-SSD model (no URL needed)
-        console.log('Loading COCO-SSD model...');
-        const modelLoaded = await yoloModelRef.current.loadModel();
-        
+
+        const useYoloV8 = subscriptionTier === 'PRO' || subscriptionTier === 'ENTERPRISE';
+        const modelLoaded = await yoloModelRef.current.loadModel(useYoloV8);
+
         if (!modelLoaded) {
-          throw new Error('Failed to load COCO-SSD model');
+          throw new Error('Failed to load detection model');
         }
-        
-        console.log('✅ COCO-SSD model loaded successfully');
+
+        setModelBackend(yoloModelRef.current.backend);
+        console.log('✅ Detection model loaded — backend:', yoloModelRef.current.backend);
 
         setIsModelLoading(false);
 
@@ -814,9 +815,17 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         </div>
         
         <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-          yoloModelRef.current && !isModelLoading ? 'bg-blue-500 text-white' : 'bg-yellow-500 text-black'
+          modelBackend !== 'none' && !isModelLoading
+            ? modelBackend === 'yolov8' ? 'bg-purple-600 text-white' : 'bg-blue-500 text-white'
+            : 'bg-yellow-500 text-black'
         }`}>
-          🤖 {yoloModelRef.current && !isModelLoading ? 'AI Ready' : 'AI Loading'}
+          🤖 {isModelLoading
+            ? 'AI Loading'
+            : modelBackend === 'yolov8'
+              ? 'YOLOv8 PRO'
+              : modelBackend === 'coco-ssd'
+                ? 'COCO-SSD'
+                : 'AI Loading'}
         </div>
 
         {currentDetections.length > 0 && (
