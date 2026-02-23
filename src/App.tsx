@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef, FormEvent } from 'react';
 import { Camera, AlertTriangle, Settings as SettingsIcon, Plane, Video, Circle, Square, CreditCard, Monitor } from 'lucide-react';
 import { useAccount, useMsal } from '@azure/msal-react';
 import CameraStream from './components/CameraStream';
+import OnboardingWizard from './components/OnboardingWizard';
 import DetectionOverlay from './components/DetectionOverlay';
 import EventsList from './components/EventsList';
 import SettingsPanel from './components/SettingsPanel';
@@ -90,6 +91,7 @@ function App() {
     azureConfig: undefined
   });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [databaseReady, setDatabaseReady] = useState(false);
   const { loadFromServer, saveToServer } = useUserSettings();
   const [droneConnected, setDroneConnected] = useState(false);
@@ -326,11 +328,19 @@ function App() {
         console.error('Failed to load settings:', error);
       } finally {
         setSettingsLoaded(true);
+        if (!localStorage.getItem('privasee_onboarding_v1')) {
+          setShowOnboarding(true);
+        }
       }
     };
 
     loadSettings();
   }, [databaseReady]);
+
+  const completeOnboarding = () => {
+    localStorage.setItem('privasee_onboarding_v1', '1');
+    setShowOnboarding(false);
+  };
 
   // Save settings to storage whenever they change
   useEffect(() => {
@@ -497,6 +507,16 @@ function App() {
         pointerEvents: 'none',
         zIndex: 0,
       }} />
+      {/* Onboarding wizard — shown once on first login */}
+      {showOnboarding && settingsLoaded && (
+        <OnboardingWizard
+          subscriptionTier={settings.subscriptionTier}
+          onComplete={completeOnboarding}
+          onGoToBilling={() => { setActiveTab('billing'); completeOnboarding(); }}
+          onGoToSettings={() => { setActiveTab('settings'); completeOnboarding(); }}
+        />
+      )}
+
       {/* All content sits above the overlay */}
       <div style={{position: 'relative', zIndex: 1}}>
       {/* Header */}

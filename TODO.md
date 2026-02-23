@@ -56,8 +56,11 @@ Work items are grouped by priority. Pick up any session by starting at the top o
 
 ## Medium Priority (polish before growth)
 
-- [ ] **Onboarding flow** — First-time login drops users into the full dashboard with no guidance.
-  Add a simple 3-step wizard: (1) choose plan → (2) connect first camera → (3) configure Azure Blob (PRO).
+- [x] **Onboarding flow** — `OnboardingWizard.tsx` renders on first login (localStorage flag
+  `privasee_onboarding_v1`). 3-step wizard: (1) Your Plan — tier badge + FREE upgrade CTA;
+  (2) Connect Camera — numbered steps for getUserMedia; (3) Cloud Storage — Open Settings CTA
+  for PRO/ENTERPRISE, upgrade prompt for FREE. Skip button on every step. App.tsx shows wizard
+  after settings load completes so subscriptionTier is available.
 
 - [ ] **Push notifications** — Azure Notification Hubs integration not started.
   Alert users on mobile when a high-severity detection event fires. Required for PRO value prop.
