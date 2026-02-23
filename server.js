@@ -860,6 +860,20 @@ async function logEventToDb(entry) {
   fsp.mkdir(eventLogDir, { recursive: true })
     .then(() => fsp.appendFile(logFile, JSON.stringify(record) + '\n'))
     .catch(err => console.error('[EVENT] Failed to write event log:', err.message));
+
+  // Non-blocking DB persistence to SystemLog (queryable alternative to JSONL)
+  const db = getPrisma();
+  if (db) {
+    const { type, message, correlationId, ...rest } = record;
+    db.systemLog.create({
+      data: {
+        type: type || 'unknown',
+        message: message ?? null,
+        correlationId: correlationId ?? null,
+        data: Object.keys(rest).length ? JSON.stringify(rest) : null,
+      },
+    }).catch(err => console.error('[EVENT] Failed to persist to SystemLog:', err.message));
+  }
 }
 
 async function triggerDroneLaunch(event, correlationId) {

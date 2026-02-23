@@ -32,12 +32,10 @@ Work items are grouped by priority. Pick up any session by starting at the top o
 
 ## High Priority (degrades paid value without)
 
-- [ ] **Persist motion webhook events to DB** — `logEventToDb` now writes to JSONL files but not the `Event` table.
-  The `Event` model requires `tenantId` and `userId` (non-nullable), which aren't available in the API-key-authenticated
-  webhook path. Options:
-  1. Add an optional `apiKeyId` / `sourceTag` field and allow null tenantId/userId for system-originated events (requires migration).
-  2. Require webhook callers to pass an `x-tenant-id` header, validate it against `Tenant` table, then associate.
-  Recommendation: Option 2 — add `x-tenant-id` header to webhook auth + store against that tenant.
+- [x] **Persist motion webhook events to DB** — Added `SystemLog` Prisma model (id, type, message, data JSON,
+  correlationId, createdAt). `logEventToDb` now writes non-blocking to `SystemLog` in addition to JSONL files.
+  Opted for SystemLog over modifying `Event` (which requires tenantId/userId) — keeps webhook path simple.
+  Schema applied via `prisma db push`. Verified insert in production DB.
 
 - [ ] **Fix syncQueue status display** — `src/utils/syncQueue.ts:352-355` has TODOs for tracking sync time,
   pending item count, and error counts. PRO users see no feedback on whether cloud sync is working.
@@ -49,9 +47,7 @@ Work items are grouped by priority. Pick up any session by starting at the top o
   2. Add a feature-gated toggle in `CameraStream.tsx` (PRO+ only)
   3. Document model download / hosting in Azure Blob
 
-- [ ] **Real `logEventToDb` notifications via DB** — `notifyUser()` and `persistLog()` both call `logEventToDb`.
-  These drone/system events are now file-logged. Consider adding a lightweight `SystemLog` Prisma model
-  (id, type, message, data JSON, createdAt) so ops events are queryable without digging through JSONL files.
+- [x] **Real `logEventToDb` notifications via DB** — Resolved by SystemLog implementation above.
 
 ---
 

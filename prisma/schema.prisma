@@ -162,6 +162,20 @@ model Event {
   @@index([synced, priority])
 }
 
+// System / ops event log — for webhook-originated and server-internal events
+// that have no tenant/user context. Queryable alternative to JSONL files.
+model SystemLog {
+  id            String   @id @default(cuid())
+  type          String   // e.g. 'motion', 'notify', 'media_saved', 'detection_dispatch'
+  message       String?
+  data          String?  // JSON blob of arbitrary event payload
+  correlationId String?  // links related events (e.g. motion → drone launch)
+  createdAt     DateTime @default(now())
+
+  @@index([type, createdAt])
+  @@index([correlationId])
+}
+
 // Per-user persisted settings (survives logout / new device)
 // Sensitive values (SAS token) are AES-256-GCM encrypted server-side.
 model UserSettings {
