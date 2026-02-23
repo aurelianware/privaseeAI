@@ -15,6 +15,7 @@ const jwksClient = require('jwks-rsa');
 const { default: AutelDroneSDK } = require('./src/services/AutelDroneSDK');
 const { default: FlightOrchestrator } = require('./src/services/FlightOrchestrator');
 const { WebSocketServer } = require('ws');
+const NodeMediaServer = require('node-media-server');
 const webpush = require('web-push');
 if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
@@ -613,17 +614,80 @@ app.get('/api/signal/rooms/:token', (req, res) => {
   res.json({ roomId: entry.roomId });
 });
 
+// ─── RTMP ingest (node-media-server) ─────────────────────────────────────────
+// Android controller app pushes RTMP streams here; server transcodes to HLS
+// using the existing startStream() / ffmpeg pipeline.
+// Stream keys: rtmp://server:1935/live/evo-visual-<key>  (RGB)
+//              rtmp://server:1935/live/evo-thermal-<key> (thermal)
+const DRONE_CONTROLLER_KEY = process.env.DRONE_CONTROLLER_KEY || '';
+
+const nms = new NodeMediaServer({
+  rtmp: { port: 1935, chunk_size: 60000, gop_cache: false, ping: 10, ping_timeout: 30 },
+  logType: 0, // suppress NMS internal logs
+});
+
+nms.on('postPublish', (_id, streamPath) => {
+  const name      = streamPath.replace('/live/', '');
+  const isVisual  = name.startsWith('evo-visual');
+  const isThermal = name.startsWith('evo-thermal');
+  if (!isVisual && !isThermal) return;
+
+  const streamId = isVisual ? 'evo-visual' : 'evo-thermal';
+  const label    = isVisual ? 'EVO Visual'  : 'EVO Thermal';
+  const rtmpUrl  = `rtmp://localhost:1935${streamPath}`;
+  startStream(streamId, label, rtmpUrl);
+  broadcastMission('stream_ready', { id: streamId, hlsUrl: `/streams/${streamId}/stream.m3u8` });
+  console.log(`[RTMP] ${label} stream live → /streams/${streamId}/stream.m3u8`);
+});
+
+nms.on('donePublish', (_id, streamPath) => {
+  const name     = streamPath.replace('/live/', '');
+  const streamId = name.startsWith('evo-visual') ? 'evo-visual' : 'evo-thermal';
+  const s = activeStreams.get(streamId);
+  if (s?.process) { s.process.kill('SIGTERM'); activeStreams.delete(streamId); }
+  broadcastMission('stream_ended', { id: streamId });
+  console.log(`[RTMP] ${streamId} stream ended`);
+});
+
 // ─── Mission WebSocket (/ws/mission) ─────────────────────────────────────────
-// Pushes telemetry, progress, alerts, and events to MissionDashboard clients.
-// Keeps media (raw frames) separate — those still flow through /ws/drone.
-const missionWsClients = new Set();
+// Bidirectional: server → clients (telemetry/progress/events) AND
+//                Android controller → server → clients (telemetry relay).
+// Android app authenticates via ?key=DRONE_CONTROLLER_KEY query param.
+const missionWsClients     = new Set();
+const missionWsControllers = new Set(); // Android app connections only
 
 function setupMissionWebSocket(server) {
-  const missionWss = new WebSocketServer({ server, path: '/ws/mission' });
-  missionWss.on('connection', (ws) => {
+  const missionWss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    if (!req.url.startsWith('/ws/mission')) return;
+    const url          = new URL(req.url, 'http://localhost');
+    const key          = url.searchParams.get('key') || '';
+    const isController = Boolean(DRONE_CONTROLLER_KEY && key === DRONE_CONTROLLER_KEY);
+    missionWss.handleUpgrade(req, socket, head, (ws) => {
+      missionWss.emit('connection', ws, req, isController);
+    });
+  });
+
+  missionWss.on('connection', (ws, _req, isController) => {
     missionWsClients.add(ws);
-    ws.on('close', () => missionWsClients.delete(ws));
-    ws.on('error', () => missionWsClients.delete(ws));
+    if (isController) missionWsControllers.add(ws);
+
+    // Relay telemetry/events pushed UP from the Android controller to all viewer clients
+    ws.on('message', (raw) => {
+      if (!isController) return;
+      try {
+        const msg = JSON.parse(raw.toString());
+        if (['telemetry', 'progress', 'event', 'alert'].includes(msg.type)) {
+          for (const client of missionWsClients) {
+            if (client !== ws && client.readyState === 1) client.send(raw.toString());
+          }
+        }
+      } catch { /* ignore malformed */ }
+    });
+
+    ws.on('close', () => { missionWsClients.delete(ws); missionWsControllers.delete(ws); });
+    ws.on('error', () => { missionWsClients.delete(ws); missionWsControllers.delete(ws); });
   });
 }
 
@@ -631,6 +695,14 @@ function broadcastMission(type, data) {
   if (missionWsClients.size === 0) return;
   const msg = JSON.stringify({ type, data });
   for (const ws of missionWsClients) {
+    if (ws.readyState === 1) ws.send(msg);
+  }
+}
+
+// Send a command message to the connected Android controller app(s)
+function sendCommandToController(cmd) {
+  const msg = JSON.stringify({ type: 'command', data: { cmd } });
+  for (const ws of missionWsControllers) {
     if (ws.readyState === 1) ws.send(msg);
   }
 }
@@ -1274,6 +1346,7 @@ app.post('/api/thermal/probe', async (_req, res) => {
 
 // ─── Drone control endpoints ───────────────────────────────────────────────
 app.post('/api/drone/pause', async (req, res) => {
+  sendCommandToController('pause');
   try {
     await ensureDroneReady();
     await drone.hover();
@@ -1284,6 +1357,7 @@ app.post('/api/drone/pause', async (req, res) => {
 });
 
 app.post('/api/drone/return-home', async (req, res) => {
+  sendCommandToController('return_home');
   try {
     await ensureDroneReady();
     await drone.returnToHome();
@@ -1294,6 +1368,7 @@ app.post('/api/drone/return-home', async (req, res) => {
 });
 
 app.post('/api/drone/emergency-land', async (req, res) => {
+  sendCommandToController('emergency_land');
   try {
     await ensureDroneReady();
     await drone.emergencyLand();
@@ -1301,6 +1376,14 @@ app.post('/api/drone/emergency-land', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/drone/controller-key — return the RTMP/WS key for the Android app (PRO+)
+app.get('/api/drone/controller-key', requirePro, (_req, res) => {
+  if (!DRONE_CONTROLLER_KEY) {
+    return res.status(503).json({ error: 'DRONE_CONTROLLER_KEY not configured on server' });
+  }
+  res.json({ key: DRONE_CONTROLLER_KEY });
 });
 
 app.get('/api/drone/status', async (req, res) => {
@@ -1895,6 +1978,7 @@ function checkEnv() {
     { key: 'AZURE_STORAGE_ACCOUNT',     impact: 'Managed per-user storage will be unavailable (PRO/ENTERPRISE)' },
     { key: 'AZURE_STORAGE_ACCOUNT_KEY', impact: 'Server-generated SAS tokens will fail (managed storage broken)' },
     { key: 'AZURE_ADMIN_SAS',           impact: 'Container provisioning will fail (new PRO/ENTERPRISE users get no storage)' },
+    { key: 'DRONE_CONTROLLER_KEY',      impact: 'Android controller app cannot authenticate; RTMP streams will be unauthenticated' },
   ];
   const missing = required.filter(({ key }) => !process.env[key]);
   if (missing.length) {
@@ -1914,3 +1998,5 @@ const server = app.listen(port, () => {
 setupWebSocket(server);
 setupSignalingWebSocket(server);
 setupMissionWebSocket(server);
+nms.run();
+console.log('[RTMP] Ingest listening on port 1935');
