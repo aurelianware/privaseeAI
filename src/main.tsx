@@ -6,6 +6,7 @@ import { MsalProvider } from '@azure/msal-react'
 import App from './App.tsx'
 import { msalConfig } from './msal-config'
 import { AuthProvider } from './contexts/AuthContext'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 const msalInstance = new PublicClientApplication(msalConfig)
 
@@ -14,10 +15,12 @@ const msalInstance = new PublicClientApplication(msalConfig)
 // causing an infinite login loop.
 msalInstance.initialize().then(() => {
   ReactDOM.createRoot(document.getElementById('root')!).render(
-    <MsalProvider instance={msalInstance}>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </MsalProvider>
+    <ErrorBoundary>
+      <MsalProvider instance={msalInstance}>
+        <AuthProvider>
+          <App />
+        </AuthProvider>
+      </MsalProvider>
+    </ErrorBoundary>
   )
 })
