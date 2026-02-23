@@ -24,8 +24,9 @@ Work items are grouped by priority. Pick up any session by starting at the top o
   2. `server.js:13`: `const fetch = require('node-fetch')` shadowed the native global `fetch` with a non-callable object (node-fetch v3 ESM/CJS interop). Removed the import; native fetch used throughout.
   Azure PostgreSQL firewall rule added for dev IP (74.244.177.89).
 
-- [ ] **Add startup env validation** — Server silently degrades when secrets are missing (Stripe, DB, encryption key).
-  Add a startup check that logs a clear error table of missing required vars so misconfiguration is obvious in prod logs.
+- [x] **Add startup env validation** — `checkEnv()` in `server.js` runs at startup, checks 9 required vars
+  (DATABASE_URL, Stripe keys/price IDs, SETTINGS_ENCRYPTION_KEY, Azure storage vars) and logs a clear
+  bullet table with per-var impact descriptions. Silent on clean config; noisy on misconfiguration.
 
 ---
 
