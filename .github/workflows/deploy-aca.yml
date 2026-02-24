@@ -38,7 +38,9 @@ jobs:
         if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
           IMAGE_TAG="latest"
         else
-          IMAGE_TAG="${{ github.sha }}"
+          # Use the SHA of the commit that triggered the upstream build,
+          # not github.sha which can race ahead if commits land quickly.
+          IMAGE_TAG="${{ github.event.workflow_run.head_sha }}"
         fi
         echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_OUTPUT
 
