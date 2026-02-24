@@ -230,7 +230,9 @@ const SettingsPanel: React.FC<SettingsPanelProps> = ({
             <div className="flex-1">
               <span className="font-medium">Push Notifications</span>
               <p className="text-sm text-gray-400">
-                {subscriptionTier === 'PRO' || subscriptionTier === 'ENTERPRISE'
+                {!subscriptionTier
+                  ? 'Get alerted on any device when a security event fires'
+                  : subscriptionTier === 'PRO' || subscriptionTier === 'ENTERPRISE'
                   ? 'Get alerted on any device when a security event fires'
                   : 'Requires PRO or ENTERPRISE plan'}
               </p>

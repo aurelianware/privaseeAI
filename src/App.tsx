@@ -88,7 +88,9 @@ function App() {
     motionDetection: true,
     notifications: true,
     cloudSync: false,
-    azureConfig: undefined
+    azureConfig: undefined,
+    // Seed from cache so there's no flash on reload — overwritten by server fetch below
+    subscriptionTier: localStorage.getItem('privaseeai_subscription_tier') ?? undefined,
   });
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -312,7 +314,9 @@ function App() {
     };
   };
 
-  // Load settings from storage on startup
+  // Load settings from storage on startup.
+  // Depends on msalAccount so it retries after MSAL restores the session —
+  // prevents a flash of FREE-tier UI when the DB is ready before MSAL is.
   useEffect(() => {
     if (!databaseReady) return; // Wait for database initialization
 
@@ -347,6 +351,9 @@ function App() {
         const remote = await loadFromServer();
         if (remote) {
           console.log('☁️ Loaded settings from server (multi-tenant)');
+          if (remote.subscriptionTier) {
+            localStorage.setItem('privaseeai_subscription_tier', remote.subscriptionTier);
+          }
           setSettings(prev => ({
             ...prev,
             ...(remote.confidenceThreshold !== undefined && { confidenceThreshold: remote.confidenceThreshold }),
@@ -369,7 +376,8 @@ function App() {
     };
 
     loadSettings();
-  }, [databaseReady]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [databaseReady, msalAccount]);
 
   const completeOnboarding = () => {
     localStorage.setItem('privasee_onboarding_v1', '1');
@@ -921,6 +929,7 @@ function App() {
             eventService={eventServiceRef.current}
             deviceRegistry={deviceRegistryRef.current}
             discoveryService={discoveryServiceRef.current}
+            hlsStreams={streams}
           />
         )}
 

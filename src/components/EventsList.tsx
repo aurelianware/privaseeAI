@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Clock, AlertTriangle, Eye, Play, Image, X, ChevronDown, ChevronUp, Shield, Radio, Download } from 'lucide-react';
 
 interface SecurityEvent {
@@ -12,6 +12,7 @@ interface SecurityEvent {
   confidence?: number;
   imageBlob?: Blob;
   videoBlob?: Blob;
+  frames?: Blob[];
   metadata?: {
     deviceId: string;
     location?: string;
@@ -48,12 +49,53 @@ const severityMeta: Record<string, { color: string; glow: string; label: string 
   low:      { color: S.green,  glow: 'rgba(0,255,136,0.25)',   label: 'LOW'      },
 };
 
+const FrameFlipbook: React.FC<{ frames: Blob[] }> = ({ frames }) => {
+  const [idx, setIdx] = useState(0);
+  const [urls, setUrls] = useState<string[]>([]);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    const created = frames.map(f => URL.createObjectURL(f));
+    setUrls(created);
+    setIdx(0);
+    return () => created.forEach(u => URL.revokeObjectURL(u));
+  }, [frames]);
+
+  useEffect(() => {
+    if (urls.length < 2) return;
+    intervalRef.current = setInterval(() => setIdx(i => (i + 1) % urls.length), 600);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [urls]);
+
+  if (!urls.length) return null;
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <img
+        src={urls[idx]}
+        alt={`Frame ${idx + 1} of ${urls.length}`}
+        style={{ maxWidth: '100%', maxHeight: '70vh', borderRadius: 8, display: 'block', objectFit: 'contain' }}
+      />
+      <div style={{
+        position: 'absolute', bottom: 8, right: 8,
+        fontSize: 11, color: '#fff',
+        background: 'rgba(0,0,0,0.6)',
+        padding: '2px 8px', borderRadius: 4,
+        fontVariantNumeric: 'tabular-nums',
+      }}>
+        {idx + 1} / {urls.length}
+      </div>
+    </div>
+  );
+};
+
 const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idToken }) => {
   const [selectedMedia, setSelectedMedia] = useState<{
-    type: 'image' | 'video';
+    type: 'image' | 'video' | 'frames';
     url: string;
     mimeType: string;
     eventId: string;
+    frames?: Blob[];
   } | null>(null);
   const [expandedEvents, setExpandedEvents]   = useState<Set<string>>(new Set());
   const [mediaError,     setMediaError]        = useState<string | null>(null);
@@ -119,8 +161,13 @@ const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idTok
     }
   };
 
+  const handleFlipbookView = (frames: Blob[], eventId: string) => {
+    setMediaError(null);
+    setSelectedMedia({ type: 'frames', url: '', mimeType: 'image/jpeg', eventId, frames });
+  };
+
   const closeMediaView = () => {
-    if (selectedMedia) URL.revokeObjectURL(selectedMedia.url);
+    if (selectedMedia?.url) URL.revokeObjectURL(selectedMedia.url);
     setSelectedMedia(null);
     setMediaError(null);
   };
@@ -233,7 +280,7 @@ const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idTok
         {events.map((event) => {
           const meta       = severityMeta[event.severity] ?? severityMeta.low;
           const isExpanded = expandedEvents.has(event.id);
-          const hasMedia   = !!(event.imageBlob || event.videoBlob);
+          const hasMedia   = !!(event.imageBlob || event.videoBlob || (event.frames && event.frames.length > 0));
 
           return (
             <div
@@ -334,7 +381,34 @@ const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idTok
 
                   {/* Media buttons — always visible when blobs exist */}
                   {hasMedia && (
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                      {event.frames && event.frames.length > 0 && (
+                        <button
+                          onClick={() => handleFlipbookView(event.frames!, event.id)}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 5,
+                            padding: '5px 12px', borderRadius: 6, fontSize: 12,
+                            background: `${S.orange}18`,
+                            border: `1px solid ${S.orange}55`,
+                            color: S.orange,
+                            cursor: 'pointer',
+                            fontWeight: 600,
+                            letterSpacing: '0.03em',
+                            transition: 'background 0.15s, box-shadow 0.15s',
+                          }}
+                          onMouseEnter={e => {
+                            (e.currentTarget as HTMLElement).style.background = `${S.orange}30`;
+                            (e.currentTarget as HTMLElement).style.boxShadow = `0 0 12px rgba(255,170,0,0.3)`;
+                          }}
+                          onMouseLeave={e => {
+                            (e.currentTarget as HTMLElement).style.background = `${S.orange}18`;
+                            (e.currentTarget as HTMLElement).style.boxShadow = 'none';
+                          }}
+                        >
+                          <Play style={{ width: 13, height: 13 }} />
+                          Frames ({event.frames.length})
+                        </button>
+                      )}
                       {event.imageBlob && (
                         <button
                           onClick={() => handleMediaView(event.imageBlob, 'image', event.id)}
@@ -478,16 +552,20 @@ const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idTok
             onClick={e => e.stopPropagation()}
             style={{
               background: S.obsidian,
-              border: `1px solid ${selectedMedia.type === 'video' ? S.green : S.cyan}55`,
+              border: `1px solid ${
+                selectedMedia.type === 'frames' ? S.orange :
+                selectedMedia.type === 'video'  ? S.green  : S.cyan
+              }55`,
               borderRadius: 12,
               overflow: 'hidden',
               maxWidth: '90vw',
               maxHeight: '90vh',
               display: 'flex',
               flexDirection: 'column',
-              boxShadow: selectedMedia.type === 'video'
-                ? '0 0 40px rgba(0,255,136,0.2)'
-                : '0 0 40px rgba(0,255,255,0.2)',
+              boxShadow:
+                selectedMedia.type === 'frames' ? '0 0 40px rgba(255,170,0,0.2)' :
+                selectedMedia.type === 'video'  ? '0 0 40px rgba(0,255,136,0.2)' :
+                                                  '0 0 40px rgba(0,255,255,0.2)',
             }}
           >
             {/* Modal header */}
@@ -497,13 +575,20 @@ const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idTok
               borderBottom: `1px solid ${S.border}`,
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {selectedMedia.type === 'video'
+                {selectedMedia.type === 'frames'
+                  ? <Play  style={{ width: 16, height: 16, color: S.orange }} />
+                  : selectedMedia.type === 'video'
                   ? <Play  style={{ width: 16, height: 16, color: S.green }} />
                   : <Image style={{ width: 16, height: 16, color: S.cyan  }} />}
-                <span style={{ fontWeight: 700, fontSize: 15, color: selectedMedia.type === 'video' ? S.green : S.cyan }}>
-                  {selectedMedia.type === 'video' ? 'Event Recording' : 'Event Capture'}
+                <span style={{ fontWeight: 700, fontSize: 15, color:
+                  selectedMedia.type === 'frames' ? S.orange :
+                  selectedMedia.type === 'video'  ? S.green  : S.cyan }}>
+                  {selectedMedia.type === 'frames' ? 'Frame Animation' :
+                   selectedMedia.type === 'video'  ? 'Event Recording' : 'Event Capture'}
                 </span>
-                <span style={{ fontSize: 11, color: '#444', marginLeft: 4 }}>{selectedMedia.mimeType}</span>
+                {selectedMedia.type !== 'frames' && (
+                  <span style={{ fontSize: 11, color: '#444', marginLeft: 4 }}>{selectedMedia.mimeType}</span>
+                )}
               </div>
               <button
                 type="button"
@@ -532,7 +617,9 @@ const EventsList: React.FC<EventsListProps> = ({ events, subscriptionTier, idTok
                   ⚠ Failed to load media: {mediaError}
                 </div>
               )}
-              {selectedMedia.type === 'video' ? (
+              {selectedMedia.type === 'frames' && selectedMedia.frames ? (
+                <FrameFlipbook frames={selectedMedia.frames} />
+              ) : selectedMedia.type === 'video' ? (
                 <video
                   key={selectedMedia.url}
                   src={selectedMedia.url}

@@ -9,6 +9,7 @@ export interface SecurityEvent {
   confidence: number;
   imageBlob?: Blob;
   videoBlob?: Blob;
+  frames?: Blob[]; // JPEG snapshots captured during the event window (1/sec)
   metadata: {
     deviceId: string;
     location?: string;
@@ -137,14 +138,17 @@ class LocalStorageService {
 
     // Convert Blobs to ArrayBuffer before storing to work around the Safari
     // IndexedDB Blob bug (blobs become detached after page reload).
-    const imageStorable = await this.blobToStorable(fullEvent.imageBlob);
-    const videoStorable = await this.blobToStorable(fullEvent.videoBlob);
+    const imageStorable  = await this.blobToStorable(fullEvent.imageBlob);
+    const videoStorable  = await this.blobToStorable(fullEvent.videoBlob);
+    const frameStorables = await Promise.all((fullEvent.frames ?? []).map(f => this.blobToStorable(f)));
     const storedRecord = {
       ...fullEvent,
       imageBlob: undefined,
       videoBlob: undefined,
-      ...(imageStorable && { _imageStorable: imageStorable }),
-      ...(videoStorable && { _videoStorable: videoStorable }),
+      frames: undefined,
+      ...(imageStorable  && { _imageStorable: imageStorable }),
+      ...(videoStorable  && { _videoStorable: videoStorable }),
+      ...(frameStorables.length > 0 && { _frames: frameStorables }),
     };
 
     const transaction = this.db.transaction([this.EVENTS_STORE], 'readwrite');
@@ -196,6 +200,7 @@ class LocalStorageService {
           const raw = cursor.value as SecurityEvent & {
             _imageStorable?: { _buf: ArrayBuffer; _type: string };
             _videoStorable?: { _buf: ArrayBuffer; _type: string };
+            _frames?: Array<{ _buf: ArrayBuffer; _type: string }>;
           };
 
           // Apply filters
@@ -223,6 +228,9 @@ class LocalStorageService {
             videoBlob: raw._videoStorable
               ? this.storableToBlob(raw._videoStorable)
               : raw.videoBlob,
+            frames: raw._frames
+              ? raw._frames.map(f => this.storableToBlob(f)).filter((b): b is Blob => !!b)
+              : undefined,
           };
 
           events.push(eventData);

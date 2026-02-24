@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import * as tf from '@tensorflow/tfjs';
 import '@tensorflow/tfjs-backend-webgl';
 import YOLOModel, { YOLODetection } from '../utils/yolo';
-import localStorageService, { SecurityEvent } from '../utils/storage';
+import localStorageService from '../utils/storage';
 import syncQueueService from '../utils/syncQueue';
 
 interface DetectedObject {
@@ -25,8 +25,16 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const yoloModelRef = useRef<YOLOModel | null>(null);
   const detectionLoopRef = useRef<number | undefined>(undefined);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const recordedChunksRef = useRef<Blob[]>([]);
+  // Event-window recording refs
+  const eventActiveRef      = useRef(false);
+  const eventStartTimeRef   = useRef(0);
+  const eventFramesRef      = useRef<Blob[]>([]);
+  const eventChunksRef      = useRef<Blob[]>([]);
+  const eventFrameTimerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const eventWindowTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const eventRecorderRef    = useRef<MediaRecorder | null>(null);
+  const eventAnimIdRef      = useRef<number>(0);
+  const eventDetectionsRef  = useRef<YOLODetection[]>([]);
   
   const [isModelLoading, setIsModelLoading] = useState(false);
   const [modelBackend, setModelBackend] = useState<'yolov8' | 'coco-ssd' | 'none'>('none');
@@ -36,7 +44,6 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
   const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
   const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
   const [currentDetections, setCurrentDetections] = useState<YOLODetection[]>([]);
-  const [lastEventTime, setLastEventTime] = useState<number>(0);
   const [recordedEvents, setRecordedEvents] = useState<number>(0);
 
   // Initialize TensorFlow.js and load YOLO model
@@ -259,8 +266,18 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         // Wait for next frame to ensure overlay is rendered before saving
         await new Promise(resolve => requestAnimationFrame(() => resolve(void 0)));
 
-        // Save significant events to local storage (now overlay is ready for video recording)
-        await saveDetectionEvent(detections, video);
+        // Dispatch detections into the event window (open or extend it)
+        const significant = detections.filter(d =>
+          d.score > 0.5 ||
+          ['person', 'car', 'truck', 'motorcycle', 'bus', 'bicycle', 'dog', 'cat'].includes(d.className)
+        );
+        if (significant.length > 0) {
+          if (eventActiveRef.current) {
+            scheduleWindowClose(video); // extend the existing window
+          } else {
+            void openEventWindow(significant, video); // start a new window
+          }
+        }
 
       } catch (err) {
         console.error('Detection error:', err);
@@ -278,325 +295,147 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
     detectAndDraw();
   };
 
-  // Save detection event to local storage
-  const saveDetectionEvent = async (detections: YOLODetection[], video: HTMLVideoElement): Promise<void> => {
-    // Only save if there are detections (lowered threshold for better event capture)
-    const significantDetections = detections.filter(d => 
-      d.score > 0.5 || // Lowered confidence threshold
-      ['person', 'car', 'truck', 'motorcycle', 'bus', 'bicycle', 'dog', 'cat'].includes(d.className) // More object types
+  // ── Event-window recording ──────────────────────────────────────────────────
+  //
+  // Instead of a fixed 3-second clip per detection, an "event window" stays open
+  // as long as detections keep arriving (max 30 s) and closes 3 s after the last
+  // detection. One event (with multiple JPEG frames + a video clip) is saved per
+  // window, regardless of how many detection-loop ticks fired during it.
+
+  /** Capture the current video frame + live overlay as a JPEG Blob. */
+  const captureCurrentFrame = async (video: HTMLVideoElement): Promise<Blob> => {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new Blob();
+    ctx.drawImage(video, 0, 0);
+    const overlay = overlayCanvasRef.current;
+    if (overlay) ctx.drawImage(overlay, 0, 0, canvas.width, canvas.height);
+    return new Promise<Blob>(resolve =>
+      canvas.toBlob(b => resolve(b ?? new Blob()), 'image/jpeg', 0.8)
     );
+  };
 
-    if (significantDetections.length === 0) return;
+  /** Stop recording, assemble the event, and persist it. */
+  const closeEventWindow = async (video: HTMLVideoElement): Promise<void> => {
+    if (!eventActiveRef.current) return;
+    eventActiveRef.current = false;
 
-    // Rate limiting: don't save events too frequently (reduced to 3 seconds)
-    const now = Date.now();
-    if (now - lastEventTime < 3000) return; // Wait 3 seconds between events
+    if (eventFrameTimerRef.current)  { clearInterval(eventFrameTimerRef.current);  eventFrameTimerRef.current  = null; }
+    if (eventWindowTimerRef.current) { clearTimeout(eventWindowTimerRef.current);  eventWindowTimerRef.current = null; }
+    cancelAnimationFrame(eventAnimIdRef.current);
 
+    // Capture one final frame
     try {
-      console.log('🎬 Starting media capture for detection event...');
-      
-      // Start video recording for this event (with better error handling)
-      let videoBlob: Blob;
+      const last = await captureCurrentFrame(video);
+      if (last.size > 0) eventFramesRef.current.push(last);
+    } catch { /* ignore */ }
+
+    const detections  = eventDetectionsRef.current;
+    const frames      = [...eventFramesRef.current];
+    const mimeType    = eventRecorderRef.current?.mimeType ?? 'video/webm';
+    const eventType   = detections.some(d => d.className === 'person') ? 'alert' : 'detection';
+    const maxConf     = detections.length ? Math.max(...detections.map(d => d.score)) : 0;
+    const durationSec = Math.round((Date.now() - eventStartTimeRef.current) / 1000);
+    const firstFrame  = frames[0] ?? new Blob();
+
+    const persist = async (videoBlob: Blob) => {
       try {
-        videoBlob = await startVideoRecording(3000); // Record 3 seconds
-      } catch (videoError) {
-        console.warn('⚠️ Video recording failed, saving event with image only:', videoError);
-        videoBlob = new Blob(); // Empty blob as fallback
-      }
-
-      // Capture current frame as image WITH detection overlay
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
-      
-      if (ctx) {
-        // Draw the video frame
-        ctx.drawImage(video, 0, 0);
-        
-        // Draw detection overlays on the saved image
-        drawDetectionsOnCanvas(significantDetections, canvas, ctx);
-        
-        // Convert to blob
-        const imageBlob = await new Promise<Blob>((resolve) => {
-          canvas.toBlob((blob) => {
-            console.log('🖼️ Image blob created:', blob?.size || 0, 'bytes');
-            resolve(blob || new Blob());
-          }, 'image/jpeg', 0.8);
-        });
-
-        console.log('📷 Image captured with overlay, size:', imageBlob.size, 'bytes');
-
-        // Create security event
-        const eventType = significantDetections.some(d => d.className === 'person') ? 'alert' : 'detection';
-        const maxConfidence = Math.max(...significantDetections.map(d => d.score));
-
-        const securityEvent: Omit<SecurityEvent, 'id' | 'synced' | 'syncAttempts'> = {
-          timestamp: new Date(),
-          type: eventType,
-          detections: significantDetections,
-          confidence: maxConfidence,
-          imageBlob,
-          videoBlob, // Now includes video
+        const saved = await localStorageService.saveEvent({
+          timestamp:  new Date(eventStartTimeRef.current),
+          type:       eventType as 'alert' | 'detection',
+          detections,
+          confidence: maxConf,
+          imageBlob:  firstFrame,
+          videoBlob,
+          frames,
           metadata: {
             deviceId: navigator.userAgent,
             cameraId: 'main_camera',
             location: 'front_entrance',
-            duration: 3 // 3 second video
+            duration: durationSec,
           },
-        };
-
-        // Save to local storage
-        const savedEvent = await localStorageService.saveEvent(securityEvent);
-        
-        console.log('🔍 DEBUG: Event being saved:', {
-          id: savedEvent.id,
-          hasImageBlob: !!securityEvent.imageBlob,
-          hasVideoBlob: !!securityEvent.videoBlob,
-          imageBlobSize: securityEvent.imageBlob?.size || 0,
-          videoBlobSize: securityEvent.videoBlob?.size || 0
         });
-        
-        // Update state
-        setLastEventTime(now);
         setRecordedEvents(prev => prev + 1);
-        
-        console.log(`📸🎥 Security event saved with media: ${savedEvent.id} (${eventType})`);
-        console.log(`📊 Image size: ${Math.round(imageBlob.size / 1024)}KB, Video size: ${Math.round(videoBlob.size / 1024)}KB`);
-
-        // Trigger sync if online
-        if (navigator.onLine) {
-          syncQueueService.processSyncQueue();
-        }
+        console.log(`📸 Event saved: ${saved.id} — ${frames.length} frames, ${durationSec}s, ${Math.round(videoBlob.size / 1024)}KB video`);
+        if (navigator.onLine) syncQueueService.processSyncQueue();
+      } catch (err) {
+        console.error('Failed to save event:', err);
       }
-    } catch (error) {
-      console.error('Failed to save detection event:', error);
+    };
+
+    const mr = eventRecorderRef.current;
+    eventRecorderRef.current = null;
+    if (mr && mr.state === 'recording') {
+      mr.onstop = () => void persist(new Blob(eventChunksRef.current, { type: mimeType }));
+      mr.stop();
+    } else {
+      void persist(new Blob(eventChunksRef.current, { type: mimeType }));
     }
   };
 
-  // Enhanced video recording function that captures overlay
-  const startVideoRecording = async (durationMs: number): Promise<Blob> => {
-    return new Promise((resolve, reject) => {
-      // Get current stream from video element
-      const currentStream = videoRef.current?.srcObject as MediaStream;
-      const overlayCanvas = overlayCanvasRef.current;
-      const video = videoRef.current;
-      
-      // Check if stream is available
-      if (!currentStream || currentStream.getTracks().length === 0 || !overlayCanvas || !video) {
-        reject(new Error('No video stream or overlay canvas available'));
-        return;
-      }
-
-      // Check if video track is active
-      const videoTrack = currentStream.getVideoTracks()[0];
-      if (!videoTrack || videoTrack.readyState !== 'live') {
-        reject(new Error('Video track not ready'));
-        return;
-      }
-
-      try {
-        recordedChunksRef.current = [];
-        
-        // Create a canvas to combine video + overlay
-        const recordingCanvas = document.createElement('canvas');
-        recordingCanvas.width = video.videoWidth;
-        recordingCanvas.height = video.videoHeight;
-        const recordingCtx = recordingCanvas.getContext('2d');
-        
-        if (!recordingCtx) {
-          reject(new Error('Could not create recording canvas context'));
-          return;
-        }
-
-        // Get stream from the combined canvas
-        const combinedStream = recordingCanvas.captureStream(30); // 30 FPS
-        
-        // Function to draw video + overlay onto recording canvas
-        let animationId: number;
-        const drawFrame = () => {
-          // Draw the video frame
-          recordingCtx.drawImage(video, 0, 0, recordingCanvas.width, recordingCanvas.height);
-          
-          // Draw the overlay on top - check if overlay has content
-          const overlayImageData = overlayCanvas.getContext('2d')?.getImageData(0, 0, overlayCanvas.width, overlayCanvas.height);
-          const hasOverlayContent = overlayImageData && overlayImageData.data.some((pixel, i) => i % 4 === 3 && pixel > 0); // Check alpha channel
-          
-          if (hasOverlayContent) {
-            console.log('📹 Recording frame with overlay content');
-          }
-          
-          recordingCtx.drawImage(overlayCanvas, 0, 0, recordingCanvas.width, recordingCanvas.height);
-          
-          // Continue drawing frames during recording
-          animationId = requestAnimationFrame(drawFrame);
-        };
-        
-        // Start drawing frames
-        drawFrame();
-
-        // Try different codecs for better compatibility
-        let mediaRecorder: MediaRecorder;
-        const options = [
-          { mimeType: 'video/webm;codecs=vp9' },
-          { mimeType: 'video/webm;codecs=vp8' },
-          { mimeType: 'video/webm' },
-          { mimeType: 'video/mp4' }
-        ];
-
-        let recorderCreated = false;
-        for (const option of options) {
-          try {
-            if (MediaRecorder.isTypeSupported(option.mimeType)) {
-              mediaRecorder = new MediaRecorder(combinedStream, option);
-              console.log(`📹 Using codec for overlay recording: ${option.mimeType}`);
-              recorderCreated = true;
-              break;
-            }
-          } catch (codecError) {
-            console.warn(`⚠️ Codec ${option.mimeType} not supported`);
-          }
-        }
-
-        if (!recorderCreated) {
-          // Fallback to default
-          mediaRecorder = new MediaRecorder(combinedStream);
-          console.log('📹 Using default MediaRecorder settings for overlay recording');
-        }
-        
-        mediaRecorderRef.current = mediaRecorder!;
-
-        // Collect video data
-        mediaRecorder!.ondataavailable = (event) => {
-          console.log(`📊 Recording chunk with overlay: ${event.data.size} bytes`);
-          if (event.data.size > 0) {
-            recordedChunksRef.current.push(event.data);
-          }
-        };
-
-        // When recording stops, create blob and cleanup
-        mediaRecorder!.onstop = () => {
-          const videoBlob = new Blob(recordedChunksRef.current, { 
-            type: mediaRecorder!.mimeType || 'video/webm' 
-          });
-          console.log(`🎥 Overlay recording completed: ${videoBlob.size} bytes`);
-          
-          // Stop drawing frames
-          cancelAnimationFrame(animationId);
-          
-          resolve(videoBlob);
-        };
-
-        mediaRecorder!.onerror = (event) => {
-          console.error('MediaRecorder error:', event);
-          cancelAnimationFrame(animationId);
-          reject(new Error('Recording failed'));
-        };
-
-        // Start recording
-        mediaRecorder!.start(250); // Collect data every 250ms for better reliability
-        
-        console.log(`🎥 Started ${durationMs}ms overlay video recording...`);
-
-        // Stop recording after specified duration
-        setTimeout(() => {
-          if (mediaRecorder!.state === 'recording') {
-            console.log('🎥 Video recording completed');
-            mediaRecorder!.stop();
-          }
-        }, durationMs);
-
-      } catch (error) {
-        console.error('Failed to start video recording:', error);
-        reject(error);
-      }
-    });
+  /** (Re-)arm the 3-second close timer; calls closeEventWindow when it fires. */
+  const scheduleWindowClose = (video: HTMLVideoElement): void => {
+    if (eventWindowTimerRef.current) clearTimeout(eventWindowTimerRef.current);
+    if (Date.now() - eventStartTimeRef.current >= 30_000) {
+      void closeEventWindow(video); // hard cap at 30 s
+      return;
+    }
+    eventWindowTimerRef.current = setTimeout(() => void closeEventWindow(video), 3_000);
   };
 
-  // Function to draw detections on any canvas (for saved images/videos)
-  const drawDetectionsOnCanvas = (detections: YOLODetection[], canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
-    detections.forEach((detection, index) => {
-      const [x, y, width, height] = detection.bbox;
-      
-      // Convert normalized coordinates to pixel coordinates
-      const pixelX = x * canvas.width;
-      const pixelY = y * canvas.height;
-      const pixelWidth = width * canvas.width;
-      const pixelHeight = height * canvas.height;
+  /** Open a new event window: start recording + frame collection. */
+  const openEventWindow = async (detections: YOLODetection[], video: HTMLVideoElement): Promise<void> => {
+    if (eventActiveRef.current) return;
+    eventActiveRef.current    = true;
+    eventStartTimeRef.current = Date.now();
+    eventFramesRef.current    = [];
+    eventChunksRef.current    = [];
+    eventDetectionsRef.current = detections;
 
-      // Enhanced color coding for different object types
-      let boxColor = '#00ff00'; // Default green
-      let alertLevel = 'low';
-      
-      if (['person'].includes(detection.className)) {
-        boxColor = '#ff4444'; // Red for people
-        alertLevel = 'high';
-      } else if (['car', 'truck', 'motorcycle', 'bicycle'].includes(detection.className)) {
-        boxColor = '#ff8800'; // Orange for vehicles
-        alertLevel = 'medium';
-      } else if (['knife', 'scissors', 'bottle'].includes(detection.className)) {
-        boxColor = '#ff0000'; // Bright red for potential weapons
-        alertLevel = 'critical';
+    // First frame immediately
+    const first = await captureCurrentFrame(video);
+    if (first.size > 0) eventFramesRef.current.push(first);
+
+    // Start MediaRecorder on a combined canvas (video + overlay)
+    const overlay = overlayCanvasRef.current;
+    if (overlay && video.videoWidth > 0) {
+      try {
+        const rc   = document.createElement('canvas');
+        rc.width   = video.videoWidth;
+        rc.height  = video.videoHeight;
+        const rctx = rc.getContext('2d')!;
+        const draw = () => {
+          rctx.drawImage(video, 0, 0, rc.width, rc.height);
+          rctx.drawImage(overlay, 0, 0, rc.width, rc.height);
+          eventAnimIdRef.current = requestAnimationFrame(draw);
+        };
+        draw();
+        const combined = rc.captureStream(30);
+        const codecs   = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm', 'video/mp4'];
+        let mr: MediaRecorder | null = null;
+        for (const mime of codecs) {
+          try { if (MediaRecorder.isTypeSupported(mime)) { mr = new MediaRecorder(combined, { mimeType: mime }); break; } }
+          catch { /* try next */ }
+        }
+        if (!mr) mr = new MediaRecorder(combined);
+        mr.ondataavailable = e => { if (e.data.size > 0) eventChunksRef.current.push(e.data); };
+        mr.start(250);
+        eventRecorderRef.current = mr;
+      } catch (err) {
+        console.warn('Video recording unavailable (frames only):', err);
       }
+    }
 
-      const confidence = Math.round(detection.score * 100);
+    // Periodic frame capture (1 per second during the window)
+    eventFrameTimerRef.current = setInterval(async () => {
+      if (!eventActiveRef.current) return;
+      const frame = await captureCurrentFrame(video);
+      if (frame.size > 0) eventFramesRef.current.push(frame);
+    }, 1_000);
 
-      // Draw bounding box with thicker border for high priority objects
-      ctx.strokeStyle = boxColor;
-      ctx.lineWidth = alertLevel === 'critical' ? 6 : alertLevel === 'high' ? 4 : 3; // Thicker for saved media
-      ctx.strokeRect(pixelX, pixelY, pixelWidth, pixelHeight);
-
-      // Draw filled corner markers for better visibility in saved media
-      const cornerSize = 20;
-      ctx.fillStyle = boxColor;
-      // Top-left corner
-      ctx.fillRect(pixelX - 3, pixelY - 3, cornerSize, 6);
-      ctx.fillRect(pixelX - 3, pixelY - 3, 6, cornerSize);
-      // Top-right corner
-      ctx.fillRect(pixelX + pixelWidth - cornerSize + 3, pixelY - 3, cornerSize, 6);
-      ctx.fillRect(pixelX + pixelWidth - 3, pixelY - 3, 6, cornerSize);
-
-      // Enhanced label with bigger text for saved media
-      const position = `${Math.round(pixelX)},${Math.round(pixelY)}`;
-      const label = `${detection.className.toUpperCase()} ${confidence}%`;
-      const positionLabel = `@(${position})`;
-      const timestamp = new Date().toLocaleTimeString();
-      
-      // Calculate label dimensions
-      ctx.font = 'bold 20px Arial';
-      const textMetrics = ctx.measureText(label);
-      ctx.font = '14px Arial';
-      const posMetrics = ctx.measureText(positionLabel);
-      const timeMetrics = ctx.measureText(timestamp);
-      const maxWidth = Math.max(textMetrics.width, posMetrics.width, timeMetrics.width);
-      
-      // Draw label background with semi-transparent black background
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-      ctx.fillRect(pixelX - 5, pixelY - 55, maxWidth + 20, 50);
-      
-      // Draw colored border around label
-      ctx.strokeStyle = boxColor;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(pixelX - 5, pixelY - 55, maxWidth + 20, 50);
-      
-      // Draw main label text
-      ctx.fillStyle = boxColor;
-      ctx.font = 'bold 20px Arial';
-      ctx.fillText(label, pixelX + 5, pixelY - 30);
-      
-      // Draw position text
-      ctx.font = '14px Arial';
-      ctx.fillStyle = '#ffffff';
-      ctx.fillText(positionLabel, pixelX + 5, pixelY - 15);
-      
-      // Draw timestamp
-      ctx.fillText(timestamp, pixelX + 5, pixelY - 5);
-
-      // Add detection ID in top-right of box
-      ctx.font = 'bold 16px Arial';
-      ctx.fillStyle = boxColor;
-      ctx.fillText(`#${index + 1}`, pixelX + pixelWidth - 30, pixelY + 20);
-    });
+    scheduleWindowClose(video);
   };
 
   const drawDetections = (detections: YOLODetection[], canvas: HTMLCanvasElement) => {
