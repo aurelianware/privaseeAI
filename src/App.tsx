@@ -223,9 +223,26 @@ function App() {
         if (/Mac/.test((navigator as any).userAgentData?.platform ?? ua)) return 'desktop-mac';
         return 'desktop-windows';
       };
+
+      // Stable per-browser name: stored in localStorage so the same browser always
+      // maps to the same DB record (upsert key: entraOid + name + type).
+      const DEVICE_NAME_KEY = 'privaseeai_device_name';
+      const getOrCreateDeviceName = (): string => {
+        const existing = localStorage.getItem(DEVICE_NAME_KEY);
+        if (existing) return existing;
+        const type = detectType();
+        const label = type === 'mobile-ios' ? 'iPhone' :
+                      type === 'mobile-android' ? 'Android' :
+                      type === 'desktop-mac' ? 'Mac' : 'PC';
+        const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+        const name = `${label} ${suffix}`;
+        localStorage.setItem(DEVICE_NAME_KEY, name);
+        return name;
+      };
+
       deviceRegistryRef.current.setIdToken(token);
       const device = await deviceRegistryRef.current.registerDevice({
-        name: 'This Device',
+        name: getOrCreateDeviceName(),
         type: detectType(),
         platform: ua,
         capabilities: {
