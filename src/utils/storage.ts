@@ -106,6 +106,24 @@ class LocalStorageService {
     });
   }
 
+  // ─── Blob ↔ ArrayBuffer helpers ─────────────────────────────────────────────
+  // Safari has a long-standing bug where Blob objects stored in IndexedDB
+  // become unreadable after the originating page is reloaded.  Storing raw
+  // ArrayBuffers (natively supported by all IDB implementations) is the
+  // standard workaround.  We serialise as { _buf, _type } on write and
+  // reconstruct the Blob on read — the rest of the codebase is unaffected.
+
+  private async blobToStorable(blob: Blob | undefined): Promise<{ _buf: ArrayBuffer; _type: string } | undefined> {
+    if (!blob || blob.size === 0) return undefined;
+    const buf = await blob.arrayBuffer();
+    return { _buf: buf, _type: blob.type || 'application/octet-stream' };
+  }
+
+  private storableToBlob(storable: { _buf: ArrayBuffer; _type: string } | undefined): Blob | undefined {
+    if (!storable) return undefined;
+    return new Blob([storable._buf], { type: storable._type });
+  }
+
   // Events CRUD operations
   async saveEvent(event: Omit<SecurityEvent, 'id' | 'synced' | 'syncAttempts'>): Promise<SecurityEvent> {
     if (!this.db) throw new Error('Database not initialized');
@@ -117,11 +135,23 @@ class LocalStorageService {
       syncAttempts: 0,
     };
 
+    // Convert Blobs to ArrayBuffer before storing to work around the Safari
+    // IndexedDB Blob bug (blobs become detached after page reload).
+    const imageStorable = await this.blobToStorable(fullEvent.imageBlob);
+    const videoStorable = await this.blobToStorable(fullEvent.videoBlob);
+    const storedRecord = {
+      ...fullEvent,
+      imageBlob: undefined,
+      videoBlob: undefined,
+      ...(imageStorable && { _imageStorable: imageStorable }),
+      ...(videoStorable && { _videoStorable: videoStorable }),
+    };
+
     const transaction = this.db.transaction([this.EVENTS_STORE], 'readwrite');
     const store = transaction.objectStore(this.EVENTS_STORE);
-    
+
     await new Promise<void>((resolve, reject) => {
-      const request = store.add(fullEvent);
+      const request = store.add(storedRecord);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
@@ -161,25 +191,39 @@ class LocalStorageService {
 
       request.onsuccess = (event) => {
         const cursor = (event.target as IDBRequest).result;
-        
+
         if (cursor && (!options?.limit || events.length < options.limit)) {
-          const eventData = cursor.value as SecurityEvent;
-          
+          const raw = cursor.value as SecurityEvent & {
+            _imageStorable?: { _buf: ArrayBuffer; _type: string };
+            _videoStorable?: { _buf: ArrayBuffer; _type: string };
+          };
+
           // Apply filters
-          if (options?.since && eventData.timestamp < options.since) {
+          if (options?.since && raw.timestamp < options.since) {
             cursor.continue();
             return;
           }
-          
-          if (options?.type && eventData.type !== options.type) {
+
+          if (options?.type && raw.type !== options.type) {
             cursor.continue();
             return;
           }
-          
-          if (options?.onlyUnsynced && eventData.synced) {
+
+          if (options?.onlyUnsynced && raw.synced) {
             cursor.continue();
             return;
           }
+
+          // Reconstruct Blobs from ArrayBuffer storables (Safari IDB Blob fix)
+          const eventData: SecurityEvent = {
+            ...raw,
+            imageBlob: raw._imageStorable
+              ? this.storableToBlob(raw._imageStorable)
+              : raw.imageBlob,
+            videoBlob: raw._videoStorable
+              ? this.storableToBlob(raw._videoStorable)
+              : raw.videoBlob,
+          };
 
           events.push(eventData);
           cursor.continue();
