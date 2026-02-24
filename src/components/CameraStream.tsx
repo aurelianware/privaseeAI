@@ -33,6 +33,8 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string>('');
   const [requestingCamera, setRequestingCamera] = useState(false);
+  const [facingMode, setFacingMode] = useState<'environment' | 'user'>('environment');
+  const isMobile = /iPhone|iPad|Android/i.test(navigator.userAgent);
   const [currentDetections, setCurrentDetections] = useState<YOLODetection[]>([]);
   const [lastEventTime, setLastEventTime] = useState<number>(0);
   const [recordedEvents, setRecordedEvents] = useState<number>(0);
@@ -117,13 +119,15 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         let mediaStream: MediaStream;
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: { width: { ideal: 1280 }, height: { ideal: 720 } },
+            video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode },
             audio: false
           });
         } catch (e1) {
           console.warn('⚠️ Ideal constraints failed, trying fallback:', e1);
-          // Ultra-simple fallback
-          mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode },
+            audio: false
+          });
         }
 
         localStream = mediaStream;
@@ -201,7 +205,7 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
         detectionLoopRef.current = undefined;
       }
     };
-  }, [isActive]);
+  }, [isActive, facingMode]);
 
   const startDetectionLoop = () => {
     if (!yoloModelRef.current || !videoRef.current) return;
@@ -844,7 +848,17 @@ const CameraStream: React.FC<CameraStreamProps> = ({ onDetection, isActive, onSt
 
       {/* FPS and performance info — only show when camera is active */}
       {stream && (
-        <div className="absolute top-4 right-4 z-30 flex flex-col space-y-1">
+        <div className="absolute top-4 right-4 z-30 flex flex-col space-y-1 items-end">
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => setFacingMode(m => m === 'environment' ? 'user' : 'environment')}
+              title={facingMode === 'environment' ? 'Switch to front camera' : 'Switch to rear camera'}
+              className="bg-black bg-opacity-55 border border-white border-opacity-20 rounded-lg px-2.5 py-1.5 text-white text-xl cursor-pointer leading-none"
+            >
+              🔄
+            </button>
+          )}
           <div className="bg-black bg-opacity-50 text-white px-3 py-1 rounded text-xs">
             Detection: {currentDetections.length > 0 ? 'Active' : 'Monitoring'}
           </div>
