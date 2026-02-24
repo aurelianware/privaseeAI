@@ -111,7 +111,50 @@ export class DeviceRegistry {
 
     this.devices.set(deviceId, newDevice);
     await this.saveToStorage();
-    return newDevice;
+    // Return the server-assigned ID if the upsert succeeded
+    const serverId = this.serverIds.get(deviceId) ?? deviceId;
+    return this.devices.get(serverId) ?? newDevice;
+  }
+
+  // ─── Heartbeat ────────────────────────────────────────────────────────────
+
+  private heartbeatInterval?: ReturnType<typeof setInterval>;
+  private heartbeatDeviceId?: string;
+
+  /** Start sending a heartbeat PATCH every 30 s for the given server device ID. */
+  startHeartbeat(serverId: string, token?: string): void {
+    if (token) this.idToken = token;
+    this.heartbeatDeviceId = serverId;
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    void this.sendHeartbeat(); // immediate first ping
+    this.heartbeatInterval = setInterval(() => void this.sendHeartbeat(), 30_000);
+    window.addEventListener('beforeunload', () => this.stopHeartbeat(), { once: true });
+  }
+
+  stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = undefined;
+    }
+    if (this.idToken && this.heartbeatDeviceId) {
+      fetch(`/api/devices/${this.heartbeatDeviceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.idToken}` },
+        body: JSON.stringify({ status: 'offline' }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+  }
+
+  private async sendHeartbeat(): Promise<void> {
+    if (!this.idToken || !this.heartbeatDeviceId) return;
+    try {
+      await fetch(`/api/devices/${this.heartbeatDeviceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.idToken}` },
+        body: JSON.stringify({ status: 'online', lastHeartbeat: new Date() }),
+      });
+    } catch { /* best-effort */ }
   }
 
   async updateDeviceStatus(deviceId: string, status: Partial<DeviceStatus>): Promise<void> {

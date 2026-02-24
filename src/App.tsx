@@ -245,6 +245,11 @@ function App() {
         metadata: { registeredAt: new Date(), lastUpdated: new Date() },
       });
       currentDeviceRef.current = device;
+
+      // Wire real device discovery and start heartbeat
+      discoveryServiceRef.current.setIdToken(token);
+      deviceRegistryRef.current.startHeartbeat(device.id, token);
+      void discoveryServiceRef.current.startDiscovery();
     };
 
     run().catch(console.error);

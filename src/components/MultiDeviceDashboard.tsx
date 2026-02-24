@@ -79,17 +79,7 @@ export const MultiDeviceDashboard = ({
     }
   };
 
-  const handleStopDiscovery = async () => {
-    try {
-      await discoveryService.stopDiscovery();
-    } catch (error) {
-      console.error('Failed to stop discovery:', error);
-    } finally {
-      setIsDiscovering(false);
-    }
-  };
-
-  const getAlertColor = (level: 'low' | 'medium' | 'high') => {
+const getAlertColor = (level: 'low' | 'medium' | 'high') => {
     switch (level) {
       case 'high': return 'text-red-600 bg-red-50';
       case 'medium': return 'text-yellow-600 bg-yellow-50';
@@ -351,23 +341,23 @@ export const MultiDeviceDashboard = ({
         {activeTab === 'discovery' && (
           <div>
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-medium text-gray-900">Device Discovery</h2>
-              <div className="space-x-4">
-                <button
-                  onClick={handleStartDiscovery}
-                  disabled={isDiscovering}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50"
-                >
-                  {isDiscovering ? 'Discovering...' : 'Start Discovery'}
-                </button>
-                <button
-                  onClick={handleStopDiscovery}
-                  disabled={!isDiscovering}
-                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50"
-                >
-                  Stop Discovery
-                </button>
+              <div>
+                <h2 className="text-lg font-medium text-gray-900">Registered Devices</h2>
+                <p className="text-sm text-gray-500 mt-1">
+                  Devices that have opened the app and registered. Online status updates every 30 s.
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={handleStartDiscovery}
+                disabled={isDiscovering}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center space-x-2"
+              >
+                {isDiscovering && (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+                )}
+                <span>{isDiscovering ? 'Refreshing…' : 'Refresh'}</span>
+              </button>
             </div>
 
             <div className="bg-white shadow rounded-lg overflow-hidden">
@@ -378,64 +368,50 @@ export const MultiDeviceDashboard = ({
                       Device
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      IP Address
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Type
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Actions
+                      Last Seen
                     </th>
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {discoveredDevices.map((device) => (
-                    <tr key={device.id}>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">
-                          {device.deviceInfo?.deviceName || 'Unknown Device'}
-                        </div>
-                        <div className="text-sm text-gray-500">{device.id}</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {device.ipAddress}:{device.port}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {device.deviceInfo?.deviceType || 'Unknown'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          device.status === 'responding' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                        }`}>
-                          {device.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <button className="text-indigo-600 hover:text-indigo-900 mr-4">
-                          Connect
-                        </button>
-                        <button className="text-gray-600 hover:text-gray-900">
-                          Details
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {discoveredDevices.map((device) => {
+                    const isOnline = device.status === 'responding';
+                    return (
+                      <tr key={device.id}>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">
+                            {device.deviceInfo?.deviceName || 'Unknown Device'}
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono">{device.id.slice(0, 16)}…</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {device.deviceInfo?.deviceType || 'Unknown'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            isOnline ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isOnline ? 'bg-green-500' : 'bg-gray-400'}`} />
+                            {isOnline ? 'Online' : 'Offline'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {device.lastSeen.toLocaleTimeString()}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              
+
               {discoveredDevices.length === 0 && (
                 <div className="p-8 text-center text-gray-500">
-                  {isDiscovering ? (
-                    <div className="flex items-center justify-center space-x-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                      <span>Searching for devices...</span>
-                    </div>
-                  ) : (
-                    'No devices discovered. Click "Start Discovery" to scan for devices.'
-                  )}
+                  No devices registered yet. Open the app on another device to see it appear here.
                 </div>
               )}
             </div>
