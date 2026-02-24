@@ -104,6 +104,47 @@ describe('Fail-closed authorisation (Issue #2)', () => {
   })
 })
 
+// ─── RTMP stream key authentication (Issue B) ────────────────────────────────
+// Mirrors the prePublish validation logic in server/rtmp.js.
+function validateRtmpStream(streamPath: string, controllerKey: string): 'accepted' | 'rejected' {
+  if (!controllerKey) return 'rejected';
+  const name      = streamPath.replace('/live/', '');
+  const isVisual  = name.startsWith('evo-visual-');
+  const isThermal = name.startsWith('evo-thermal-');
+  if (!isVisual && !isThermal) return 'rejected';
+  const prefix    = isVisual ? 'evo-visual-' : 'evo-thermal-';
+  const streamKey = name.slice(prefix.length);
+  return streamKey === controllerKey ? 'accepted' : 'rejected';
+}
+
+describe('RTMP stream key authentication (Issue B)', () => {
+  const KEY = 'secret-drone-key';
+
+  it('accepts a visual stream with the correct key', () => {
+    expect(validateRtmpStream(`/live/evo-visual-${KEY}`, KEY)).toBe('accepted');
+  });
+
+  it('accepts a thermal stream with the correct key', () => {
+    expect(validateRtmpStream(`/live/evo-thermal-${KEY}`, KEY)).toBe('accepted');
+  });
+
+  it('rejects a stream with a wrong key', () => {
+    expect(validateRtmpStream('/live/evo-visual-wrong-key', KEY)).toBe('rejected');
+  });
+
+  it('rejects a stream with an empty key', () => {
+    expect(validateRtmpStream('/live/evo-visual-', KEY)).toBe('rejected');
+  });
+
+  it('rejects an unknown stream path (not evo-visual or evo-thermal)', () => {
+    expect(validateRtmpStream(`/live/other-stream-${KEY}`, KEY)).toBe('rejected');
+  });
+
+  it('rejects all streams when DRONE_CONTROLLER_KEY is not configured', () => {
+    expect(validateRtmpStream(`/live/evo-visual-${KEY}`, '')).toBe('rejected');
+  });
+})
+
 // ─── JWT verification expectations (Issue #1) ────────────────────────────────
 
 describe('JWT verification requirements (Issue #1)', () => {

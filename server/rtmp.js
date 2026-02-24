@@ -16,6 +16,39 @@ function createNms({ startStream, stopStream, broadcastMission }) {
     logType: 0, // suppress NMS internal logs
   });
 
+  // ─── RTMP stream authentication ───────────────────────────────────────────
+  // Reject any publish attempt whose stream key doesn't match DRONE_CONTROLLER_KEY.
+  // Stream path format: /live/evo-visual-<key>  or  /live/evo-thermal-<key>
+  nms.on('prePublish', (id, streamPath) => {
+    const controllerKey = process.env.DRONE_CONTROLLER_KEY || '';
+    if (!controllerKey) {
+      console.warn('[RTMP] DRONE_CONTROLLER_KEY not set — rejecting all publish attempts');
+      nms.getSession(id).reject();
+      return;
+    }
+
+    const name      = streamPath.replace('/live/', '');
+    const isVisual  = name.startsWith('evo-visual-');
+    const isThermal = name.startsWith('evo-thermal-');
+
+    if (!isVisual && !isThermal) {
+      console.warn(`[RTMP] Rejected unknown stream path: ${streamPath}`);
+      nms.getSession(id).reject();
+      return;
+    }
+
+    const prefix    = isVisual ? 'evo-visual-' : 'evo-thermal-';
+    const streamKey = name.slice(prefix.length);
+
+    if (streamKey !== controllerKey) {
+      console.warn(`[RTMP] Rejected publish on ${streamPath} — invalid stream key`);
+      nms.getSession(id).reject();
+      return;
+    }
+
+    console.log(`[RTMP] Authenticated publish on ${streamPath}`);
+  });
+
   nms.on('postPublish', (_id, streamPath) => {
     const name      = streamPath.replace('/live/', '');
     const isVisual  = name.startsWith('evo-visual');
