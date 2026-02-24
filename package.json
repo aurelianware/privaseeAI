@@ -103,6 +103,7 @@
   "author": "Your Name",
   "license": "MIT",
   "overrides": {
+    "bn.js": "^5.2.3",
     "hono": "^4.11.7",
     "lodash": "^4.17.23",
     "minimatch": "^10.2.1",
