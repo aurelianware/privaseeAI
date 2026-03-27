@@ -84,7 +84,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "eslint-plugin-security": "^3.0.1",
-    "jsdom": "^27.2.0",
+    "jsdom": "^28.0.0",
     "postcss": "^8.4.29",
     "react-refresh": "^0.18.0",
     "tailwindcss": "^4.1.17",
