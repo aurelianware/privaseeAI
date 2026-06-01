@@ -88,7 +88,7 @@
     "postcss": "^8.4.29",
     "react-refresh": "^0.18.0",
     "tailwindcss": "^4.1.17",
-    "vite": "^7.3.1",
+    "vite": "^7.3.5",
     "vite-plugin-pwa": "^1.1.0",
     "vitest": "^4.0.18"
   },
